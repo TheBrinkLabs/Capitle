@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Resources referenced only by string name at runtime (flutter_local_notifications
+  looks these up via Android's getIdentifier(), not a compile-time reference) —
+  the resource shrinker's static reachability analysis can't see those lookups,
+  so without this they're candidates for being stripped even though the app
+  needs them. See notification_service.dart: AndroidInitializationSettings
+  uses '@mipmap/ic_launcher', and each notification's `icon:` uses
+  'ic_notification'.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@mipmap/ic_launcher,@drawable/ic_notification" />
