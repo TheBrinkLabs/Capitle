@@ -85,7 +85,7 @@ class PracticeNotifier extends Notifier<GameState?> {
         entry: entry, mode: mode, dateKey: 'practice',
         populationPuzzle: PopulationPuzzle(entryA: entry, entryB: entryB, dateKey: 'practice'),
       );
-      return GameState(puzzle: puzzle, status: GameStatus.playing);
+      return GameState(puzzle: puzzle, startedAt: DateTime.now().toUtc(), status: GameStatus.playing);
     }
 
     CapitalEntry entry;
@@ -101,7 +101,7 @@ class PracticeNotifier extends Notifier<GameState?> {
     }
 
     final puzzle = DailyPuzzle(entry: entry, mode: mode, dateKey: 'practice');
-    return GameState(puzzle: puzzle, status: GameStatus.playing);
+    return GameState(puzzle: puzzle, startedAt: DateTime.now().toUtc(), status: GameStatus.playing);
   }
 
   void nextPuzzle({CapitalEntry? forcedEntry}) {

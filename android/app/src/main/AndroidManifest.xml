@@ -62,6 +62,12 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
         </intent>
+        <!-- Required for url_launcher to open https links (e.g. the Aluna
+             Play Store cross-promo) on API 30+ package visibility rules. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 
 </manifest>

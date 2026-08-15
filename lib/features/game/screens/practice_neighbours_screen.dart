@@ -4,7 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/practice_record_celebration.dart';
 import '../../../data/models/game_models.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../../../core/utils/banner_position_route.dart';
 import '../providers/practice_provider.dart';
 import '../widgets/practice_session_widgets.dart';
 
@@ -16,7 +17,10 @@ class PracticeNeighboursScreen extends ConsumerStatefulWidget {
 }
 
 class _PracticeNeighboursScreenState extends ConsumerState<PracticeNeighboursScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, BannerPositionRoute<PracticeNeighboursScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.top;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   final _guessScrollController = ScrollController();
@@ -125,7 +129,7 @@ class _PracticeNeighboursScreenState extends ConsumerState<PracticeNeighboursScr
       return Scaffold(
         backgroundColor: isDark ? AppColors.bg : AppColors.bgLight,
         body: Column(children: [
-          const BannerAdWidget(atTop: true),
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: SafeArea(
               top: false,
@@ -161,7 +165,7 @@ class _PracticeNeighboursScreenState extends ConsumerState<PracticeNeighboursScr
           // sitting as bottomNavigationBar — the number-entry keyboard
           // covers the bottom of the screen, which would hide a bottom
           // banner entirely.
-          const BannerAdWidget(atTop: true),
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: SafeArea(
         top: false,

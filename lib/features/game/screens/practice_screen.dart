@@ -8,7 +8,8 @@ import '../../../data/models/capital_entry.dart';
 import '../../../data/models/game_models.dart';
 import '../../../features/settings/providers/settings_provider.dart';
 import '../../../data/models/outline_assets.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../../../core/utils/banner_position_route.dart';
 import '../../../core/widgets/clue_ad_screen.dart';
 import '../../../core/widgets/location_reveal_map.dart';
 import '../../../core/widgets/practice_record_celebration.dart';
@@ -20,8 +21,17 @@ import 'practice_population_screen.dart';
 
 // ── Practice Menu ──────────────────────────────────────────────────────────
 
-class PracticeMenuScreen extends ConsumerWidget {
+class PracticeMenuScreen extends ConsumerStatefulWidget {
   const PracticeMenuScreen({super.key});
+
+  @override
+  ConsumerState<PracticeMenuScreen> createState() => _PracticeMenuScreenState();
+}
+
+class _PracticeMenuScreenState extends ConsumerState<PracticeMenuScreen>
+    with BannerPositionRoute<PracticeMenuScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
 
   int _poolSizeFor(GameMode mode, String? region) {
     final base = mode == GameMode.guessOutline
@@ -31,7 +41,7 @@ class PracticeMenuScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppColors.bg : AppColors.bgLight;
     final textColor = isDark ? AppColors.textDark : AppColors.textLight;
@@ -50,7 +60,8 @@ class PracticeMenuScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
@@ -312,7 +323,10 @@ class PracticeGameScreen extends ConsumerStatefulWidget {
 }
 
 class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, BannerPositionRoute<PracticeGameScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.top;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   List<String> _suggestions = [];
@@ -564,7 +578,7 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
       return Scaffold(
         backgroundColor: isDark ? AppColors.bg : AppColors.bgLight,
         body: Column(children: [
-          const BannerAdWidget(atTop: true),
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: SafeArea(
               top: false,
@@ -602,11 +616,10 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
       backgroundColor: bg,
       body: Column(
         children: [
-          // Banner moves above the content on this screen rather than
-          // sitting as bottomNavigationBar — the text field's keyboard
-          // covers the bottom of the screen while guessing, which would
-          // hide a bottom banner entirely.
-          const BannerAdWidget(atTop: true),
+          // Reserves space for the persistent banner ad — kept at the
+          // top since the text field's keyboard covers the bottom of
+          // the screen while guessing.
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: SafeArea(
         top: false,

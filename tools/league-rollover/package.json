@@ -1,0 +1,14 @@
+{
+  "name": "league-rollover",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Weekly Capitle league rollover job — promotion/relegation, room reassignment, score reset. Runs via GitHub Actions (see .github/workflows/league-rollover.yml), never as part of the Flutter app build.",
+  "type": "commonjs",
+  "main": "rollover.js",
+  "scripts": {
+    "start": "node rollover.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

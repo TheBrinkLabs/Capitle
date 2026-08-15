@@ -13,12 +13,14 @@ class StatsNotifier extends Notifier<PlayerStats> {
     required GameMode mode,
     required bool won,
     required int guessesUsed,
+    required int score,
   }) async {
     final repo = ref.read(gameRepositoryProvider);
     final updated = await repo.recordGameComplete(
       mode: mode,
       won: won,
       guessesUsed: guessesUsed,
+      score: score,
       currentStats: state,
     );
     state = updated;

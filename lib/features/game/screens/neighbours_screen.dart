@@ -5,7 +5,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/game_models.dart';
 import '../providers/game_provider.dart';
 import 'result_screen.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../../core/utils/banner_position_route.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
 
 class NeighboursScreen extends ConsumerStatefulWidget {
   const NeighboursScreen({super.key});
@@ -15,7 +16,10 @@ class NeighboursScreen extends ConsumerStatefulWidget {
 }
 
 class _NeighboursScreenState extends ConsumerState<NeighboursScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, BannerPositionRoute<NeighboursScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.top;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   final _guessScrollController = ScrollController();
@@ -111,11 +115,10 @@ class _NeighboursScreenState extends ConsumerState<NeighboursScreen>
       backgroundColor: bg,
       body: Column(
         children: [
-          // Banner moves above the content on this screen rather than
-          // sitting as bottomNavigationBar — the number-entry keyboard
-          // covers the bottom of the screen, which would hide a bottom
-          // banner entirely.
-          const BannerAdWidget(atTop: true),
+          // Reserves space for the persistent banner ad (see
+          // PersistentBannerAd) — kept at the top since the number-entry
+          // keyboard covers the bottom of the screen.
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: SafeArea(
         top: false,

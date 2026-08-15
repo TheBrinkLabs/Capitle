@@ -3,9 +3,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
-import '../../features/home/widgets/banner_ad_widget.dart';
+import '../../features/home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../utils/banner_position_route.dart';
 
 /// Shows a full-screen animated wireframe globe: starts oriented on the
 /// user's approximate location (via IP-based geolocation — no device
@@ -106,7 +108,7 @@ double _targetAngleFor(double fromAngle, double lonDeg) {
   return base + (((offset - base) % (2 * pi)) + 2 * pi) % (2 * pi);
 }
 
-class _GlobeRevealScreen extends StatefulWidget {
+class _GlobeRevealScreen extends ConsumerStatefulWidget {
   final double targetLat;
   final double targetLng;
   final String countryName;
@@ -119,10 +121,14 @@ class _GlobeRevealScreen extends StatefulWidget {
   });
 
   @override
-  State<_GlobeRevealScreen> createState() => _GlobeRevealScreenState();
+  ConsumerState<_GlobeRevealScreen> createState() => _GlobeRevealScreenState();
 }
 
-class _GlobeRevealScreenState extends State<_GlobeRevealScreen> with TickerProviderStateMixin {
+class _GlobeRevealScreenState extends ConsumerState<_GlobeRevealScreen>
+    with TickerProviderStateMixin, BannerPositionRoute<_GlobeRevealScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
   Map<String, List<List<Offset>>>? _countries;
   late final List<_Star> _stars;
   late final Ticker _clockTicker;
@@ -224,7 +230,8 @@ class _GlobeRevealScreenState extends State<_GlobeRevealScreen> with TickerProvi
 
     return Scaffold(
       backgroundColor: Colors.black,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: Stack(
         children: [
           Positioned.fill(

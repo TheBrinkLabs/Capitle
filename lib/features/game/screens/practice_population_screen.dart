@@ -4,14 +4,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/game_models.dart';
 import '../../../data/models/capital_entry.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../../../core/utils/banner_position_route.dart';
 import '../providers/practice_provider.dart';
 
-class PracticePopulationScreen extends ConsumerWidget {
+class PracticePopulationScreen extends ConsumerStatefulWidget {
   const PracticePopulationScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PracticePopulationScreen> createState() => _PracticePopulationScreenState();
+}
+
+class _PracticePopulationScreenState extends ConsumerState<PracticePopulationScreen>
+    with BannerPositionRoute<PracticePopulationScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
+  @override
+  Widget build(BuildContext context) {
     final gameState = ref.watch(practicePopulationProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -39,7 +49,8 @@ class PracticePopulationScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: Column(
           children: [

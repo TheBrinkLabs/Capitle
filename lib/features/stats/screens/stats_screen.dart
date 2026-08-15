@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/game_models.dart';
 import '../providers/stats_provider.dart';
-import '../../home/widgets/banner_ad_widget.dart';
 import '../../../core/widgets/app_effects.dart';
+import '../../league/providers/week_history_provider.dart';
+import '../widgets/score_trend_chart.dart';
 
 class StatsScreen extends ConsumerWidget {
   const StatsScreen({super.key});
@@ -22,7 +23,10 @@ class StatsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      // Positioned by MainScaffold via the persistent banner overlay —
+      // this just reserves the same space it always has.
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
@@ -115,6 +119,47 @@ class StatsScreen extends ConsumerWidget {
                       label: 'Games Lost', surface: surface),
                 ],
               ),
+
+              const SizedBox(height: 24),
+
+              // ── Weekly league score trend ─────────────────────────
+              Text('SCORE TREND', style: TextStyle(
+                  fontSize: 10, letterSpacing: 3,
+                  fontWeight: FontWeight.w600, color: textMuted)),
+              const SizedBox(height: 10),
+              Consumer(builder: (context, ref, _) {
+                final weeksAsync = ref.watch(weekHistoryProvider);
+                return weeksAsync.when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 30),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (e, st) => MatteCard(
+                    isDark: isDark, borderRadius: 18,
+                    padding: const EdgeInsets.all(20),
+                    child: Center(child: Text("Couldn't load your score trend",
+                        style: TextStyle(fontSize: 12, color: textMuted))),
+                  ),
+                  data: (weeks) {
+                    if (weeks.isEmpty) {
+                      return MatteCard(
+                        isDark: isDark, borderRadius: 18,
+                        padding: const EdgeInsets.all(20),
+                        child: Column(children: [
+                          Text('Join the League to start tracking your weekly score',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 13, color: textMuted)),
+                        ]),
+                      );
+                    }
+                    return MatteCard(
+                      isDark: isDark, borderRadius: 18,
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+                      child: ScoreTrendChart(weeks: weeks, isDark: isDark),
+                    );
+                  },
+                );
+              }),
 
               const SizedBox(height: 24),
 

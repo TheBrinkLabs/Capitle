@@ -6,13 +6,23 @@ import '../../../data/models/game_models.dart';
 import '../../../data/models/capital_entry.dart';
 import '../providers/game_provider.dart';
 import 'result_screen.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../../core/utils/banner_position_route.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
 
-class PopulationScreen extends ConsumerWidget {
+class PopulationScreen extends ConsumerStatefulWidget {
   const PopulationScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PopulationScreen> createState() => _PopulationScreenState();
+}
+
+class _PopulationScreenState extends ConsumerState<PopulationScreen>
+    with BannerPositionRoute<PopulationScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
+  @override
+  Widget build(BuildContext context) {
     final gameState = ref.watch(guessPopulationGameProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -55,7 +65,8 @@ class PopulationScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: Column(
           children: [

@@ -1,10 +1,81 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/utils/ad_service.dart';
 import '../../../core/utils/meta_banner_ad.dart';
 
 enum _BannerState { loading, loaded, failed }
+
+/// Where the single persistent banner ad should currently sit — driven by
+/// whichever screen is the active route (see BannerPositionRoute) or by
+/// MainScaffold for the tab screens. `hidden` covers splash/onboarding and
+/// any tab (League, Settings) that has never shown a banner.
+///
+/// `bottom` is used by pushed routes with no bottom nav bar of their own
+/// (the ad sits flush against the screen's bottom safe area). `bottomAboveNav`
+/// is used by MainScaffold's own tabs (Home, Stats) — it sits directly above
+/// MainScaffold's bottom nav bar instead of underneath/behind it, since both
+/// would otherwise anchor to the same screen edge and the ad (painted on top
+/// via MaterialApp.builder) would visually cover the nav bar entirely.
+enum BannerPosition { top, bottom, bottomAboveNav, hidden }
+
+final bannerPositionProvider = StateProvider<BannerPosition>((ref) => BannerPosition.hidden);
+
+/// Height of MainScaffold's bottom nav bar content (excludes safe-area
+/// inset, which it adds separately via its own SafeArea). Shared here so
+/// PersistentBannerAd can reserve exactly this much space above the nav bar
+/// for `bottomAboveNav` without guessing at a magic number.
+const double kMainNavBarHeight = 60;
+
+/// The ONE instance of [BannerAdWidget] for the whole app, injected above
+/// the Navigator via MaterialApp.builder (see main.dart) so it's never
+/// unmounted by screen navigation — that's the entire point of this
+/// widget. Screens never create their own banner; they just set
+/// [bannerPositionProvider] to say where they'd like it.
+///
+/// The underlying BannerAdWidget stays mounted at all times (via
+/// Visibility(maintainState: true)) even when "hidden" — removing it from
+/// the tree would destroy the native AdView, exactly what this whole
+/// change is meant to stop happening. Only its position/visibility changes.
+class PersistentBannerAd extends ConsumerWidget {
+  const PersistentBannerAd({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(bannerPositionProvider);
+    final atTop = position == BannerPosition.top;
+    final aboveNav = position == BannerPosition.bottomAboveNav;
+    final hidden = position == BannerPosition.hidden;
+
+    // MainScaffold's nav bar renders at kMainNavBarHeight *plus* the
+    // device's own bottom safe-area inset (it adds that via its own
+    // SafeArea) — reserve exactly that much here, or the ad ends up a few
+    // pixels too low and clips into the nav bar's own bottom padding.
+    final navBarTotalHeight = kMainNavBarHeight + MediaQuery.of(context).padding.bottom;
+
+    return IgnorePointer(
+      ignoring: hidden,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: aboveNav ? navBarTotalHeight : 0),
+        child: Align(
+          alignment: atTop ? Alignment.topCenter : Alignment.bottomCenter,
+          child: Visibility(
+            visible: !hidden,
+            maintainState: true,
+            maintainAnimation: true,
+            maintainSize: false,
+            // MainScaffold's nav bar already applies its own bottom
+            // safe-area inset below where this ad now sits, so skip a
+            // second one here — otherwise the gap doubles up.
+            child: BannerAdWidget(atTop: atTop, applyBottomSafeArea: !aboveNav),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Banner ad, normally shown at the bottom of a screen (as
 /// bottomNavigationBar). Uses Meta Audience Network via a native
@@ -23,7 +94,8 @@ enum _BannerState { loading, loaded, failed }
 /// bottomNavigationBar.
 class BannerAdWidget extends StatefulWidget {
   final bool atTop;
-  const BannerAdWidget({super.key, this.atTop = false});
+  final bool applyBottomSafeArea;
+  const BannerAdWidget({super.key, this.atTop = false, this.applyBottomSafeArea = true});
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -57,7 +129,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
     return SafeArea(
       top: widget.atTop,
-      bottom: !widget.atTop,
+      bottom: !widget.atTop && widget.applyBottomSafeArea,
       child: SizedBox(
         width: double.infinity,
         height: 50, // standard banner height
@@ -81,7 +153,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
                 },
               ),
             ),
-            if (_state == _BannerState.failed) const _HouseBanner(),
+            // Also kept permanently mounted rather than built/torn down
+            // conditionally — Meta's SDK can flicker between loaded and
+            // failed (e.g. a brief fill followed by a refresh miss), and
+            // conditionally removing this from the tree would destroy its
+            // State every time, restarting the whole Higgins/Aluna cycle
+            // from scratch instead of just resuming where it left off.
+            Offstage(
+              offstage: _state != _BannerState.failed,
+              child: const _HouseBanner(),
+            ),
           ],
         ),
       ),
@@ -104,7 +185,10 @@ class _HouseBanner extends StatefulWidget {
 }
 
 class _HouseBannerState extends State<_HouseBanner> {
-  static const _brandDuration = Duration(seconds: 18);
+  // Aluna's own intro + live-view sequence needs ~19.5s to play out in
+  // full (see _AlunaBannerState) — keep this comfortably above that so
+  // its Play Store view actually gets a turn before swapping to Higgins.
+  static const _brandDuration = Duration(seconds: 21);
 
   int _brandIndex = 0;
   Timer? _alternateTimer;
@@ -270,17 +354,18 @@ class _HigginsBannerState extends State<_HigginsBanner> with TickerProviderState
           fontWeight: FontWeight.w700,
           fontSize: 16,
           height: 1.0,
+          decoration: TextDecoration.none,
         ),
         children: [
-          TextSpan(text: bodyText, style: const TextStyle(color: _cream)),
-          TextSpan(text: lastChar, style: const TextStyle(color: _gold)),
+          TextSpan(text: bodyText, style: const TextStyle(color: _cream, decoration: TextDecoration.none)),
+          TextSpan(text: lastChar, style: const TextStyle(color: _gold, decoration: TextDecoration.none)),
           // Blinking cursor while still typing.
           if (!isFullyTyped)
             WidgetSpan(
               alignment: PlaceholderAlignment.middle,
               child: FadeTransition(
                 opacity: _cursorController,
-                child: const Text('|', style: TextStyle(color: _gold, fontFamily: 'serif', fontSize: 16, fontWeight: FontWeight.w700)),
+                child: const Text('|', style: TextStyle(color: _gold, fontFamily: 'serif', fontSize: 16, fontWeight: FontWeight.w700, decoration: TextDecoration.none)),
               ),
             ),
         ],
@@ -298,11 +383,11 @@ class _HigginsBannerState extends State<_HigginsBanner> with TickerProviderState
         const SizedBox(width: 10),
         RichText(
           text: TextSpan(
-            style: const TextStyle(fontFamily: 'serif', fontWeight: FontWeight.w700, fontSize: 16, height: 1.0),
+            style: const TextStyle(fontFamily: 'serif', fontWeight: FontWeight.w700, fontSize: 16, height: 1.0, decoration: TextDecoration.none),
             children: [
-              TextSpan(text: 'Higgins', style: TextStyle(color: _cream)),
-              TextSpan(text: '... ', style: TextStyle(color: _gold)),
-              TextSpan(text: 'coming soon', style: TextStyle(color: _cream.withOpacity(0.75))),
+              const TextSpan(text: 'Higgins', style: TextStyle(color: _cream, decoration: TextDecoration.none)),
+              const TextSpan(text: '... ', style: TextStyle(color: _gold, decoration: TextDecoration.none)),
+              TextSpan(text: 'coming soon', style: TextStyle(color: _cream.withOpacity(0.75), decoration: TextDecoration.none)),
             ],
           ),
         ),
@@ -345,8 +430,11 @@ class _HigginsLogoBars extends StatelessWidget {
 // Dark green background with a glowing mint ring icon that slowly
 // "breathes" (scales up and down), matching Aluna's own brand look.
 // Text cycles by fading in/out — deliberately NOT the Higgins typewriter
-// style, these are two visually distinct brands — landing permanently
-// on the wordmark + tagline once the cycle finishes.
+// style, these are two visually distinct brands. Once the intro word
+// cycle finishes, it settles into a permanent live state that itself
+// alternates between a tagline and a "get it on Google Play" call to
+// action — the whole banner is tappable and opens Aluna's real Play
+// Store listing.
 
 const _alunaBg = Color(0xFF0B1F16);
 const _alunaBgDeep = Color(0xFF0F241A);
@@ -359,8 +447,7 @@ const List<String> _alunaMessages = [
   'take deep breaths',
 ];
 
-// TODO: once Aluna ships, swap this tap behaviour to open its real Play
-// Store listing via url_launcher instead of showing this message.
+const _alunaPlayStoreUrl = 'https://play.google.com/store/apps/details?id=com.brinklabs.aluna';
 
 class _AlunaBanner extends StatefulWidget {
   const _AlunaBanner({super.key});
@@ -369,12 +456,16 @@ class _AlunaBanner extends StatefulWidget {
   State<_AlunaBanner> createState() => _AlunaBannerState();
 }
 
+enum _AlunaLiveView { tagline, playStore }
+
 class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixin {
   late final AnimationController _breatheController;
   int _messageIndex = 0;
   bool _wordVisible = false;
-  bool _showingComingSoon = false;
+  bool _isLive = false;
+  _AlunaLiveView _liveView = _AlunaLiveView.tagline;
   Timer? _sequenceTimer;
+  Timer? _liveViewTimer;
 
   // Slow and unhurried on purpose — this is meant to feel calming, not
   // like a typical ad's snappy attention-grab.
@@ -383,6 +474,12 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
   static const _iconSettleDelay = Duration(milliseconds: 900); // before "relax" starts fading in
   static const _breatheStartDelay = Duration(seconds: 3);
   static const _breatheCycle = Duration(seconds: 4);
+  // How long the penultimate (tagline) screen holds before switching to
+  // the Play Store screen — a one-shot transition, not a loop, so it
+  // doesn't flash back to the tagline before the outer Higgins/Aluna
+  // swap. The Play Store screen just sits until Aluna itself is swapped
+  // out (comfortably longer than 2-3s given the remaining time budget).
+  static const _taglineDuration = Duration(seconds: 4, milliseconds: 500);
 
   @override
   void initState() {
@@ -405,7 +502,7 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
   void _runWordCycle() {
     // Current word is already fading in (_wordVisible was just set true);
     // hold it, fade out, then either advance to the next word or — after
-    // the last one — settle permanently on the wordmark + tagline.
+    // the last one — settle permanently into the live-view alternation.
     _sequenceTimer = Timer(_wordFadeIn + _holdWord, () {
       if (!mounted) return;
       setState(() => _wordVisible = false);
@@ -414,9 +511,10 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
         final isLastMessage = _messageIndex == _alunaMessages.length - 1;
         if (isLastMessage) {
           setState(() {
-            _showingComingSoon = true;
+            _isLive = true;
             _wordVisible = true;
           });
+          _scheduleNextLiveView();
           return;
         }
         setState(() {
@@ -428,9 +526,26 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
     });
   }
 
+  void _scheduleNextLiveView() {
+    // One-shot: tagline holds, then switches permanently to the Play
+    // Store screen for the rest of Aluna's mounted lifetime.
+    _liveViewTimer = Timer(_taglineDuration, () {
+      if (!mounted) return;
+      setState(() => _liveView = _AlunaLiveView.playStore);
+    });
+  }
+
+  Future<void> _openPlayStore() async {
+    final uri = Uri.parse(_alunaPlayStoreUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   void dispose() {
     _sequenceTimer?.cancel();
+    _liveViewTimer?.cancel();
     _breatheController.dispose();
     super.dispose();
   }
@@ -438,14 +553,7 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🧘 Aluna — coming soon!'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      },
+      onTap: _openPlayStore,
       child: Container(
         width: double.infinity,
         height: 50,
@@ -473,10 +581,12 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
               ),
             ),
             const SizedBox(width: 12),
-            AnimatedOpacity(
-              opacity: _wordVisible ? 1.0 : 0.0,
-              duration: _wordFadeIn,
-              child: _showingComingSoon ? _buildComingSoon() : _buildWord(),
+            Expanded(
+              child: AnimatedOpacity(
+                opacity: _wordVisible ? 1.0 : 0.0,
+                duration: _wordFadeIn,
+                child: _isLive ? _buildLiveContent() : _buildWord(),
+              ),
             ),
           ],
         ),
@@ -485,29 +595,119 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
   }
 
   Widget _buildWord() {
-    return Text(
-      _alunaMessages[_messageIndex],
-      style: GoogleFonts.quicksand(
-        fontSize: 16, fontWeight: FontWeight.w600, color: _alunaWhite, height: 1.0,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        _alunaMessages[_messageIndex],
+        style: GoogleFonts.quicksand(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: _alunaWhite,
+          height: 1.0,
+          decoration: TextDecoration.none,
+        ),
       ),
     );
   }
 
-  Widget _buildComingSoon() {
+  Widget _buildLiveContent() {
+    return AnimatedSwitcher(
+      // Slower than the default cross-fade — Aluna's brand is calm and
+      // unhurried, so the Play Store view should visibly fade in rather
+      // than snap on.
+      duration: const Duration(milliseconds: 800),
+      child: _liveView == _AlunaLiveView.tagline
+          ? _buildTagline(key: const ValueKey('tagline'))
+          : _buildPlayStoreRow(key: const ValueKey('playstore')),
+    );
+  }
+
+  Widget _buildWordmark({double fontSize = 16}) {
     return RichText(
       text: TextSpan(
-        style: GoogleFonts.quicksand(fontSize: 16, fontWeight: FontWeight.w700, height: 1.0),
-        children: [
-          const TextSpan(text: 'a', style: TextStyle(color: _alunaMint)),
-          const TextSpan(text: 'lun', style: TextStyle(color: _alunaWhite)),
-          const TextSpan(text: 'a', style: TextStyle(color: _alunaMint)),
-          const TextSpan(text: '  ·  ', style: TextStyle(color: _alunaMuted)),
-          TextSpan(
-            text: 'no ads, no subscription, coming soon',
-            style: GoogleFonts.quicksand(fontSize: 12, fontWeight: FontWeight.w500, color: _alunaMuted, height: 1.0),
-          ),
+        style: GoogleFonts.quicksand(fontSize: fontSize, fontWeight: FontWeight.w700, height: 1.0, decoration: TextDecoration.none),
+        children: const [
+          TextSpan(text: 'a', style: TextStyle(color: _alunaMint, decoration: TextDecoration.none)),
+          TextSpan(text: 'lun', style: TextStyle(color: _alunaWhite, decoration: TextDecoration.none)),
+          TextSpan(text: 'a', style: TextStyle(color: _alunaMint, decoration: TextDecoration.none)),
         ],
       ),
+    );
+  }
+
+  Widget _buildTagline({Key? key}) {
+    return Align(
+      key: key,
+      alignment: Alignment.centerLeft,
+      child: RichText(
+        text: TextSpan(
+          style: GoogleFonts.quicksand(fontSize: 16, fontWeight: FontWeight.w700, height: 1.0, decoration: TextDecoration.none),
+          children: [
+            const TextSpan(text: 'a', style: TextStyle(color: _alunaMint, decoration: TextDecoration.none)),
+            const TextSpan(text: 'lun', style: TextStyle(color: _alunaWhite, decoration: TextDecoration.none)),
+            const TextSpan(text: 'a', style: TextStyle(color: _alunaMint, decoration: TextDecoration.none)),
+            const TextSpan(text: '  ·  ', style: TextStyle(color: _alunaMuted, decoration: TextDecoration.none)),
+            TextSpan(
+              text: 'no ads, no subscription, on Play Store now',
+              style: GoogleFonts.quicksand(fontSize: 12, fontWeight: FontWeight.w500, color: _alunaMuted, height: 1.0, decoration: TextDecoration.none),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayStoreRow({Key? key}) {
+    return Row(
+      key: key,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _buildWordmark(),
+        const _GooglePlayBadge(),
+      ],
+    );
+  }
+}
+
+/// Small "available on Google Play" badge — the Play triangle (rendered
+/// with the store's own 4-colour gradient via ShaderMask rather than a
+/// bundled image, matching this file's convention of hand-drawing brand
+/// marks like [_HigginsLogoBars]) plus "Google Play" in a Google-ish
+/// sans-serif. Not the official pixel-exact Play badge asset — a tasteful
+/// approximation sized for a 50px cross-promo strip.
+class _GooglePlayBadge extends StatelessWidget {
+  const _GooglePlayBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ShaderMask(
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF00D2FF), // blue
+              Color(0xFF00F076), // green
+              Color(0xFFFFCF00), // yellow
+              Color(0xFFFF3A44), // red
+            ],
+            stops: [0.0, 0.4, 0.65, 1.0],
+          ).createShader(bounds),
+          child: const Icon(Icons.play_arrow_rounded, size: 22, color: Colors.white),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Google Play',
+          style: GoogleFonts.roboto(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: _alunaWhite,
+            decoration: TextDecoration.none,
+          ),
+        ),
+      ],
     );
   }
 }

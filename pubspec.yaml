@@ -44,6 +44,10 @@ dependencies:
   flutter_svg: ^2.3.0
   in_app_update: ^5.0.0
   unity_ads_plugin: ^0.4.0
+  firebase_auth: ^5.7.0
+  cloud_firestore: ^5.6.12
+  google_sign_in: ^7.2.0
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

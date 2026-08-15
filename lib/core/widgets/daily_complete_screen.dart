@@ -12,7 +12,13 @@ import '../../data/models/game_models.dart';
 class DailyCompleteScreen extends StatefulWidget {
   final List<GameMode> activeModes;
   final PlayerStats stats;
-  const DailyCompleteScreen({super.key, required this.activeModes, required this.stats});
+  final int todayScore;
+  const DailyCompleteScreen({
+    super.key,
+    required this.activeModes,
+    required this.stats,
+    required this.todayScore,
+  });
 
   @override
   State<DailyCompleteScreen> createState() => _DailyCompleteScreenState();
@@ -140,6 +146,32 @@ class _DailyCompleteScreenState extends State<DailyCompleteScreen> with TickerPr
                       ],
                     ),
                   ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                MatteCard(
+                  isDark: isDark,
+                  borderRadius: 16,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('⭐', style: TextStyle(fontSize: 18)),
+                      const SizedBox(width: 8),
+                      TabularNumber(
+                        '${widget.todayScore}',
+                        style: const TextStyle(
+                          fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.w800,
+                          color: AppColors.blue, letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text("TODAY'S SCORE", style: TextStyle(
+                        fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w600,
+                        color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+                      )),
+                    ],
                   ),
                 ),
 

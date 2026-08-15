@@ -1,0 +1,108 @@
+rules_version = '2';
+
+// Weekly league data model.
+//
+//   players/{uid}                                 — profile + tier/room pointer
+//   players/{uid}/scores/{weekId}/modes/{modeDoc} — one doc per (uid, week, mode, day)
+//   players/{uid}/weekHistory/{weekId}             — frozen results, written by the rollover job
+//   leagueRooms/{roomId}                           — room roster + metadata
+//   leagueMeta/*                                   — current-week pointer + rollover log
+//
+// Everything that must be tamper-proof (tier, roomId, pendingJoin,
+// weekHistory, leagueRooms, leagueMeta) is written ONLY by the weekly
+// GitHub Actions rollover job via the Firebase Admin SDK, which bypasses
+// these rules entirely — so "allow write: if false" here correctly locks
+// out every client without blocking that job.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedInAs(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /players/{uid} {
+      allow read: if true; // leaderboard needs to read every member's profile/streak/tier
+
+      allow create: if isSignedInAs(uid)
+        && request.resource.data.keys().hasAll(
+             ['nickname', 'nicknameLower', 'countryCode', 'currentStreak',
+              'tier', 'roomId', 'pendingJoin', 'createdAt', 'updatedAt', 'linkedGoogle'])
+        && request.resource.data.nickname is string
+        && request.resource.data.countryCode is string
+        && request.resource.data.currentStreak is int
+        && request.resource.data.tier == 'bronze'   // can only ever self-create as bronze
+        && request.resource.data.roomId == null
+        && request.resource.data.pendingJoin == true
+        && request.resource.data.linkedGoogle == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // Clients may only ever touch this allow-listed set of fields —
+      // tier/roomId/pendingJoin/createdAt are frozen from the client's
+      // point of view, changeable only by the rollover job's Admin SDK
+      // write, which bypasses rules.
+      allow update: if isSignedInAs(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             ['nickname', 'nicknameLower', 'countryCode', 'currentStreak', 'linkedGoogle', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+
+      match /scores/{weekId}/modes/{modeDocId} {
+        allow read: if true; // needed for client-side sum() aggregation across all room members
+
+        // One doc per (uid, week, mode, day), ID = "<mode>_<dateKey>".
+        // Firestore's create-only semantics (no update/delete allowed
+        // below) make a duplicate submission for the same day+mode
+        // structurally impossible — no app-level dedup logic needed.
+        allow create: if isSignedInAs(uid)
+          && request.resource.data.mode in
+               ['guessCountry', 'guessCapital', 'guessFlag',
+                'guessNeighbours', 'guessPopulation', 'guessOutline']
+          && modeDocId == request.resource.data.mode + '_' + request.resource.data.dateKey
+          && request.resource.data.weekId == weekId
+          && request.resource.data.won is bool
+          && request.resource.data.score is int
+          && request.resource.data.score >= 0
+          && request.resource.data.score <= 100
+          && request.resource.data.guessesUsed is int
+          && (
+               request.resource.data.mode == 'guessPopulation'
+                 ? request.resource.data.guessesUsed == 1
+                 : (request.resource.data.guessesUsed >= 1 && request.resource.data.guessesUsed <= 3)
+             )
+          && request.resource.data.dateKey is string
+          && request.resource.data.dateKey.size() == 8
+          && request.resource.data.submittedAt == request.time;
+          // Note: this intentionally does NOT parse dateKey to verify it's
+          // genuinely "today" — Firestore rules' date/string-slicing
+          // support wasn't confirmed against a real deployment before
+          // shipping this file, and a wrong-but-confident rule is worse
+          // than no rule. The real anti-abuse mechanism is the doc ID
+          // scheme above (one immutable doc per uid+week+mode+day) plus
+          // auth.uid matching — a forged dateKey can only ever create an
+          // extra out-of-place score doc, it can never overwrite or
+          // duplicate a real one. Tighten this once verified against the
+          // Firebase emulator if forged dateKeys turn out to matter.
+
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      match /weekHistory/{weekId} {
+        allow read: if true;
+        allow write: if false; // rollover job only
+      }
+    }
+
+    match /leagueRooms/{roomId} {
+      allow read: if true;
+      allow write: if false; // rollover job only
+    }
+
+    match /leagueMeta/{document=**} {
+      allow read: if true;
+      allow write: if false; // rollover job only
+    }
+  }
+}

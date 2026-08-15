@@ -6,6 +6,9 @@ import '../../../core/utils/providers.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../stats/providers/stats_provider.dart';
 import '../../../core/utils/notification_service.dart';
+import '../../../core/utils/league_scoring.dart';
+import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/league_repository.dart';
 
 final guessCountryGameProvider =
     NotifierProvider<GameNotifier, GameState?>(() => GameNotifier(GameMode.guessCountry));
@@ -41,13 +44,17 @@ class GameNotifier extends Notifier<GameState?> {
     final dayRecord = repo.loadDayRecord(repo.todayKey);
 
     if (dayRecord.completedMode(mode)) {
+      // Reconstructing an already-finished puzzle purely for display —
+      // startedAt is irrelevant here since scoring already happened
+      // earlier today, when the puzzle was actually played.
       return GameState(
         puzzle: puzzle,
+        startedAt: DateTime.now().toUtc(),
         guesses: const [],
         status: dayRecord.wonMode(mode) ? GameStatus.won : GameStatus.lost,
       );
     }
-    return GameState(puzzle: puzzle, status: GameStatus.playing);
+    return GameState(puzzle: puzzle, startedAt: DateTime.now().toUtc(), status: GameStatus.playing);
   }
 
   // Simple flat-map direction (not great-circle navigation bearing).
@@ -143,17 +150,48 @@ class GameNotifier extends Notifier<GameState?> {
   Future<void> _onGameOver(bool won, int guessesUsed) async {
     final repo = ref.read(gameRepositoryProvider);
     final statsNotifier = ref.read(statsProvider.notifier);
-    await statsNotifier.recordGame(mode: mode, won: won, guessesUsed: guessesUsed);
+    // Computed unconditionally (not gated on Firebase/league availability
+    // below) — this is a pure formula, and the score is now shown locally
+    // on the Home/result screens regardless of whether the player is
+    // signed in to the league at all.
+    final elapsed = DateTime.now().toUtc().difference(state!.startedAt);
+    final score = gameScore(won: won, guessesUsed: guessesUsed, elapsed: elapsed);
+    await statsNotifier.recordGame(mode: mode, won: won, guessesUsed: guessesUsed, score: score);
     var record = repo.loadDayRecord(repo.todayKey);
     record = switch (mode) {
-      GameMode.guessCountry => record.copyWith(completedGuessCountry: true, wonGuessCountry: won, guessesUsedCountry: guessesUsed),
-      GameMode.guessCapital => record.copyWith(completedGuessCapital: true, wonGuessCapital: won, guessesUsedCapital: guessesUsed),
-      GameMode.guessFlag => record.copyWith(completedGuessFlag: true, wonGuessFlag: won, guessesUsedFlag: guessesUsed),
-      GameMode.guessNeighbours => record.copyWith(completedGuessNeighbours: true, wonGuessNeighbours: won, guessesUsedNeighbours: guessesUsed),
-      GameMode.guessPopulation => record.copyWith(completedGuessPopulation: true, wonGuessPopulation: won, guessesUsedPopulation: guessesUsed),
-      GameMode.guessOutline => record.copyWith(completedGuessOutline: true, wonGuessOutline: won, guessesUsedOutline: guessesUsed),
+      GameMode.guessCountry => record.copyWith(completedGuessCountry: true, wonGuessCountry: won, guessesUsedCountry: guessesUsed, scoreGuessCountry: score),
+      GameMode.guessCapital => record.copyWith(completedGuessCapital: true, wonGuessCapital: won, guessesUsedCapital: guessesUsed, scoreGuessCapital: score),
+      GameMode.guessFlag => record.copyWith(completedGuessFlag: true, wonGuessFlag: won, guessesUsedFlag: guessesUsed, scoreGuessFlag: score),
+      GameMode.guessNeighbours => record.copyWith(completedGuessNeighbours: true, wonGuessNeighbours: won, guessesUsedNeighbours: guessesUsed, scoreGuessNeighbours: score),
+      GameMode.guessPopulation => record.copyWith(completedGuessPopulation: true, wonGuessPopulation: won, guessesUsedPopulation: guessesUsed, scoreGuessPopulation: score),
+      GameMode.guessOutline => record.copyWith(completedGuessOutline: true, wonGuessOutline: won, guessesUsedOutline: guessesUsed, scoreGuessOutline: score),
     };
     await repo.saveDayRecord(record);
+
+    // League score submission — wrapped defensively like the notification
+    // reschedule below, since a Firestore hiccup should never be able to
+    // crash the actual game-over flow. No-ops silently if the player isn't
+    // signed in yet (Firebase unavailable, or somehow reached this point
+    // before profile setup).
+    try {
+      final uid = ref.read(uidProvider);
+      if (uid != null) {
+        await ref.read(leagueRepositoryProvider).submitGameScore(
+              uid: uid,
+              mode: mode,
+              won: won,
+              guessesUsed: guessesUsed,
+              score: score,
+            );
+        // Sync the just-updated streak too, now that recordGame() above
+        // has already recalculated it — this is what the leaderboard and
+        // rollover tie-break read.
+        final streak = ref.read(statsProvider).currentStreak;
+        await ref.read(leagueRepositoryProvider).syncStreak(uid: uid, streak: streak);
+      }
+    } catch (e, st) {
+      debugPrint('League score submission failed (non-fatal): $e\n$st');
+    }
 
     // If that was the last active mode for today, re-arm the streak-saver
     // alert immediately so it skips today rather than firing later on.

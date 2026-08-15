@@ -55,6 +55,7 @@ serviceAccountKey.json
 **/tools/league-rollover/*.json
 !**/tools/league-rollover/package.json
 !**/tools/league-rollover/package-lock.json
+tools/league-rollover/node_modules/
 
 # Local Claude Code config / stray debug artifacts
 .claude/

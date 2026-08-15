@@ -7,8 +7,11 @@ import '../../stats/providers/stats_provider.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/utils/package_info_provider.dart';
 import '../../onboarding/screens/onboarding_screen.dart';
+import '../../onboarding/screens/profile_setup_screen.dart';
 import '../../../core/utils/notification_service.dart';
 import '../../../core/utils/providers.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../data/repositories/league_repository.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -168,6 +171,53 @@ class SettingsScreen extends ConsumerWidget {
                         if (!v && !settings.countryModeActive && !settings.capitalModeActive && !settings.flagModeActive && !settings.neighboursModeActive && !settings.populationModeActive) return;
                         ref.read(settingsProvider.notifier)
                             .updateField((s) => s.copyWith(outlineModeActive: v));
+                      },
+                      isDark: isDark,
+                    ),
+                  ]),
+
+                  const SizedBox(height: 20),
+
+                  // ── LEAGUE ────────────────────────────────────────
+                  _SectionLabel(label: 'League', isDark: isDark),
+                  _SettingsGroup(isDark: isDark, children: [
+                    _NavRow(
+                      icon: '🏆',
+                      iconBg: const Color(0x1400D4AA),
+                      title: 'Edit League Profile',
+                      value: '',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ProfileSetupScreen(mode: ProfileSetupMode.standalone),
+                        ),
+                      ),
+                      isDark: isDark,
+                    ),
+                    _Divider(isDark: isDark),
+                    _NavRow(
+                      icon: '🔗',
+                      iconBg: const Color(0x1400D4AA),
+                      title: 'Back up your progress',
+                      value: 'Sign in with Google',
+                      onTap: () async {
+                        try {
+                          await authService.linkGoogle();
+                          final uid = authService.uid;
+                          if (uid != null) {
+                            await ref.read(leagueRepositoryProvider).markLinkedGoogle(uid);
+                          }
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Your progress is now backed up.')),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Couldn't sign in — try again in a bit.")),
+                            );
+                          }
+                        }
                       },
                       isDark: isDark,
                     ),

@@ -263,6 +263,7 @@ class GameRepository {
       return PlayerStats(
         totalPlayed: json['totalPlayed'] as int? ?? 0,
         totalWon: json['totalWon'] as int? ?? 0,
+        totalScore: json['totalScore'] as int? ?? 0,
         guessDistributionCountry: _parseIntMap(json['guessDistCountry']),
         guessDistributionCapital: _parseIntMap(json['guessDistCapital']),
         guessDistributionFlag: _parseIntMap(json['guessDistFlag']),
@@ -295,6 +296,7 @@ class GameRepository {
     await _prefs.setString(_prefStats, jsonEncode({
       'totalPlayed': stats.totalPlayed,
       'totalWon': stats.totalWon,
+      'totalScore': stats.totalScore,
       'guessDistCountry': stats.guessDistributionCountry.map((k, v) => MapEntry(k.toString(), v)),
       'guessDistCapital': stats.guessDistributionCapital.map((k, v) => MapEntry(k.toString(), v)),
       'guessDistFlag': stats.guessDistributionFlag.map((k, v) => MapEntry(k.toString(), v)),
@@ -357,18 +359,19 @@ class GameRepository {
     required GameMode mode,
     required bool won,
     required int guessesUsed,
+    required int score,
     required PlayerStats currentStats,
   }) async {
     final key = todayKey;
     var record = loadDayRecord(key);
 
     record = switch (mode) {
-      GameMode.guessCountry => record.copyWith(completedGuessCountry: true, wonGuessCountry: won, guessesUsedCountry: guessesUsed),
-      GameMode.guessCapital => record.copyWith(completedGuessCapital: true, wonGuessCapital: won, guessesUsedCapital: guessesUsed),
-      GameMode.guessFlag => record.copyWith(completedGuessFlag: true, wonGuessFlag: won, guessesUsedFlag: guessesUsed),
-      GameMode.guessNeighbours => record.copyWith(completedGuessNeighbours: true, wonGuessNeighbours: won, guessesUsedNeighbours: guessesUsed),
-      GameMode.guessPopulation => record.copyWith(completedGuessPopulation: true, wonGuessPopulation: won, guessesUsedPopulation: guessesUsed),
-      GameMode.guessOutline => record.copyWith(completedGuessOutline: true, wonGuessOutline: won, guessesUsedOutline: guessesUsed),
+      GameMode.guessCountry => record.copyWith(completedGuessCountry: true, wonGuessCountry: won, guessesUsedCountry: guessesUsed, scoreGuessCountry: score),
+      GameMode.guessCapital => record.copyWith(completedGuessCapital: true, wonGuessCapital: won, guessesUsedCapital: guessesUsed, scoreGuessCapital: score),
+      GameMode.guessFlag => record.copyWith(completedGuessFlag: true, wonGuessFlag: won, guessesUsedFlag: guessesUsed, scoreGuessFlag: score),
+      GameMode.guessNeighbours => record.copyWith(completedGuessNeighbours: true, wonGuessNeighbours: won, guessesUsedNeighbours: guessesUsed, scoreGuessNeighbours: score),
+      GameMode.guessPopulation => record.copyWith(completedGuessPopulation: true, wonGuessPopulation: won, guessesUsedPopulation: guessesUsed, scoreGuessPopulation: score),
+      GameMode.guessOutline => record.copyWith(completedGuessOutline: true, wonGuessOutline: won, guessesUsedOutline: guessesUsed, scoreGuessOutline: score),
     };
     await saveDayRecord(record);
 
@@ -410,6 +413,7 @@ class GameRepository {
     final updated = PlayerStats(
       totalPlayed: currentStats.totalPlayed + 1,
       totalWon: currentStats.totalWon + (won ? 1 : 0),
+      totalScore: currentStats.totalScore + score,
       guessDistributionCountry: distCountry,
       guessDistributionCapital: distCapital,
       guessDistributionFlag: distFlag,

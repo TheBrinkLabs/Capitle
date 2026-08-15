@@ -151,9 +151,11 @@ class GameState {
   final String? clueText;
   final bool freeClueUsed; // clue unlocked via rewarded ad — doesn't cost a guess
   final String? clueLetter; // the revealed first letter, for filtering suggestions
+  final DateTime startedAt; // when this puzzle was first shown — used for league speed scoring
 
   const GameState({
     required this.puzzle,
+    required this.startedAt,
     this.guesses = const [],
     this.status = GameStatus.playing,
     this.clueUsed = false,
@@ -187,6 +189,7 @@ class GameState {
   }) =>
       GameState(
         puzzle: puzzle,
+        startedAt: startedAt,
         guesses: guesses ?? this.guesses,
         status: status ?? this.status,
         clueUsed: clueUsed ?? this.clueUsed,
@@ -201,21 +204,27 @@ class DayRecord {
   final bool completedGuessCountry;
   final bool wonGuessCountry;
   final int guessesUsedCountry;
+  final int scoreGuessCountry;
   final bool completedGuessCapital;
   final bool wonGuessCapital;
   final int guessesUsedCapital;
+  final int scoreGuessCapital;
   final bool completedGuessFlag;
   final bool wonGuessFlag;
   final int guessesUsedFlag;
+  final int scoreGuessFlag;
   final bool completedGuessNeighbours;
   final bool wonGuessNeighbours;
   final int guessesUsedNeighbours;
+  final int scoreGuessNeighbours;
   final bool completedGuessPopulation;
   final bool wonGuessPopulation;
   final int guessesUsedPopulation;
+  final int scoreGuessPopulation;
   final bool completedGuessOutline;
   final bool wonGuessOutline;
   final int guessesUsedOutline;
+  final int scoreGuessOutline;
 
   // Modes "frozen" on this day via a streak-repair rewarded ad. A frozen
   // day preserves streak continuity (doesn't break the chain) WITHOUT
@@ -228,21 +237,27 @@ class DayRecord {
     this.completedGuessCountry = false,
     this.wonGuessCountry = false,
     this.guessesUsedCountry = 0,
+    this.scoreGuessCountry = 0,
     this.completedGuessCapital = false,
     this.wonGuessCapital = false,
     this.guessesUsedCapital = 0,
+    this.scoreGuessCapital = 0,
     this.completedGuessFlag = false,
     this.wonGuessFlag = false,
     this.guessesUsedFlag = 0,
+    this.scoreGuessFlag = 0,
     this.completedGuessNeighbours = false,
     this.wonGuessNeighbours = false,
     this.guessesUsedNeighbours = 0,
+    this.scoreGuessNeighbours = 0,
     this.completedGuessPopulation = false,
     this.wonGuessPopulation = false,
     this.guessesUsedPopulation = 0,
+    this.scoreGuessPopulation = 0,
     this.completedGuessOutline = false,
     this.wonGuessOutline = false,
     this.guessesUsedOutline = 0,
+    this.scoreGuessOutline = 0,
     this.frozenModeNames = const {},
   });
 
@@ -264,6 +279,21 @@ class DayRecord {
         GameMode.guessOutline => wonGuessOutline,
       };
 
+  int scoreForMode(GameMode mode) => switch (mode) {
+        GameMode.guessCountry => scoreGuessCountry,
+        GameMode.guessCapital => scoreGuessCapital,
+        GameMode.guessFlag => scoreGuessFlag,
+        GameMode.guessNeighbours => scoreGuessNeighbours,
+        GameMode.guessPopulation => scoreGuessPopulation,
+        GameMode.guessOutline => scoreGuessOutline,
+      };
+
+  /// Sum of scores across whichever of [modes] were completed today —
+  /// pass `GameMode.values` for every mode, or a settings-filtered list
+  /// for just the active ones.
+  int totalScoreFor(List<GameMode> modes) =>
+      modes.where(completedMode).fold(0, (sum, m) => sum + scoreForMode(m));
+
   bool isFrozenMode(GameMode mode) => frozenModeNames.contains(mode.name);
 
   // A day "counts" toward chain continuity only if it was WON, or frozen
@@ -284,12 +314,12 @@ class DayRecord {
   bool anyComplete(List<GameMode> activeModes) => activeModes.any((m) => completedMode(m));
 
   DayRecord copyWith({
-    bool? completedGuessCountry, bool? wonGuessCountry, int? guessesUsedCountry,
-    bool? completedGuessCapital, bool? wonGuessCapital, int? guessesUsedCapital,
-    bool? completedGuessFlag, bool? wonGuessFlag, int? guessesUsedFlag,
-    bool? completedGuessNeighbours, bool? wonGuessNeighbours, int? guessesUsedNeighbours,
-    bool? completedGuessPopulation, bool? wonGuessPopulation, int? guessesUsedPopulation,
-    bool? completedGuessOutline, bool? wonGuessOutline, int? guessesUsedOutline,
+    bool? completedGuessCountry, bool? wonGuessCountry, int? guessesUsedCountry, int? scoreGuessCountry,
+    bool? completedGuessCapital, bool? wonGuessCapital, int? guessesUsedCapital, int? scoreGuessCapital,
+    bool? completedGuessFlag, bool? wonGuessFlag, int? guessesUsedFlag, int? scoreGuessFlag,
+    bool? completedGuessNeighbours, bool? wonGuessNeighbours, int? guessesUsedNeighbours, int? scoreGuessNeighbours,
+    bool? completedGuessPopulation, bool? wonGuessPopulation, int? guessesUsedPopulation, int? scoreGuessPopulation,
+    bool? completedGuessOutline, bool? wonGuessOutline, int? guessesUsedOutline, int? scoreGuessOutline,
     Set<String>? frozenModeNames,
   }) =>
       DayRecord(
@@ -297,21 +327,27 @@ class DayRecord {
         completedGuessCountry: completedGuessCountry ?? this.completedGuessCountry,
         wonGuessCountry: wonGuessCountry ?? this.wonGuessCountry,
         guessesUsedCountry: guessesUsedCountry ?? this.guessesUsedCountry,
+        scoreGuessCountry: scoreGuessCountry ?? this.scoreGuessCountry,
         completedGuessCapital: completedGuessCapital ?? this.completedGuessCapital,
         wonGuessCapital: wonGuessCapital ?? this.wonGuessCapital,
         guessesUsedCapital: guessesUsedCapital ?? this.guessesUsedCapital,
+        scoreGuessCapital: scoreGuessCapital ?? this.scoreGuessCapital,
         completedGuessFlag: completedGuessFlag ?? this.completedGuessFlag,
         wonGuessFlag: wonGuessFlag ?? this.wonGuessFlag,
         guessesUsedFlag: guessesUsedFlag ?? this.guessesUsedFlag,
+        scoreGuessFlag: scoreGuessFlag ?? this.scoreGuessFlag,
         completedGuessNeighbours: completedGuessNeighbours ?? this.completedGuessNeighbours,
         wonGuessNeighbours: wonGuessNeighbours ?? this.wonGuessNeighbours,
         guessesUsedNeighbours: guessesUsedNeighbours ?? this.guessesUsedNeighbours,
+        scoreGuessNeighbours: scoreGuessNeighbours ?? this.scoreGuessNeighbours,
         completedGuessPopulation: completedGuessPopulation ?? this.completedGuessPopulation,
         wonGuessPopulation: wonGuessPopulation ?? this.wonGuessPopulation,
         guessesUsedPopulation: guessesUsedPopulation ?? this.guessesUsedPopulation,
+        scoreGuessPopulation: scoreGuessPopulation ?? this.scoreGuessPopulation,
         completedGuessOutline: completedGuessOutline ?? this.completedGuessOutline,
         wonGuessOutline: wonGuessOutline ?? this.wonGuessOutline,
         guessesUsedOutline: guessesUsedOutline ?? this.guessesUsedOutline,
+        scoreGuessOutline: scoreGuessOutline ?? this.scoreGuessOutline,
         frozenModeNames: frozenModeNames ?? this.frozenModeNames,
       );
 
@@ -321,12 +357,12 @@ class DayRecord {
 
   Map<String, dynamic> toJson() => {
         'dateKey': dateKey,
-        'completedGuessCountry': completedGuessCountry, 'wonGuessCountry': wonGuessCountry, 'guessesUsedCountry': guessesUsedCountry,
-        'completedGuessCapital': completedGuessCapital, 'wonGuessCapital': wonGuessCapital, 'guessesUsedCapital': guessesUsedCapital,
-        'completedGuessFlag': completedGuessFlag, 'wonGuessFlag': wonGuessFlag, 'guessesUsedFlag': guessesUsedFlag,
-        'completedGuessNeighbours': completedGuessNeighbours, 'wonGuessNeighbours': wonGuessNeighbours, 'guessesUsedNeighbours': guessesUsedNeighbours,
-        'completedGuessPopulation': completedGuessPopulation, 'wonGuessPopulation': wonGuessPopulation, 'guessesUsedPopulation': guessesUsedPopulation,
-        'completedGuessOutline': completedGuessOutline, 'wonGuessOutline': wonGuessOutline, 'guessesUsedOutline': guessesUsedOutline,
+        'completedGuessCountry': completedGuessCountry, 'wonGuessCountry': wonGuessCountry, 'guessesUsedCountry': guessesUsedCountry, 'scoreGuessCountry': scoreGuessCountry,
+        'completedGuessCapital': completedGuessCapital, 'wonGuessCapital': wonGuessCapital, 'guessesUsedCapital': guessesUsedCapital, 'scoreGuessCapital': scoreGuessCapital,
+        'completedGuessFlag': completedGuessFlag, 'wonGuessFlag': wonGuessFlag, 'guessesUsedFlag': guessesUsedFlag, 'scoreGuessFlag': scoreGuessFlag,
+        'completedGuessNeighbours': completedGuessNeighbours, 'wonGuessNeighbours': wonGuessNeighbours, 'guessesUsedNeighbours': guessesUsedNeighbours, 'scoreGuessNeighbours': scoreGuessNeighbours,
+        'completedGuessPopulation': completedGuessPopulation, 'wonGuessPopulation': wonGuessPopulation, 'guessesUsedPopulation': guessesUsedPopulation, 'scoreGuessPopulation': scoreGuessPopulation,
+        'completedGuessOutline': completedGuessOutline, 'wonGuessOutline': wonGuessOutline, 'guessesUsedOutline': guessesUsedOutline, 'scoreGuessOutline': scoreGuessOutline,
         'frozenModeNames': frozenModeNames.toList(),
       };
 
@@ -335,21 +371,27 @@ class DayRecord {
         completedGuessCountry: json['completedGuessCountry'] as bool? ?? false,
         wonGuessCountry: json['wonGuessCountry'] as bool? ?? false,
         guessesUsedCountry: json['guessesUsedCountry'] as int? ?? 0,
+        scoreGuessCountry: json['scoreGuessCountry'] as int? ?? 0,
         completedGuessCapital: json['completedGuessCapital'] as bool? ?? false,
         wonGuessCapital: json['wonGuessCapital'] as bool? ?? false,
         guessesUsedCapital: json['guessesUsedCapital'] as int? ?? 0,
+        scoreGuessCapital: json['scoreGuessCapital'] as int? ?? 0,
         completedGuessFlag: json['completedGuessFlag'] as bool? ?? false,
         wonGuessFlag: json['wonGuessFlag'] as bool? ?? false,
         guessesUsedFlag: json['guessesUsedFlag'] as int? ?? 0,
+        scoreGuessFlag: json['scoreGuessFlag'] as int? ?? 0,
         completedGuessNeighbours: json['completedGuessNeighbours'] as bool? ?? false,
         wonGuessNeighbours: json['wonGuessNeighbours'] as bool? ?? false,
         guessesUsedNeighbours: json['guessesUsedNeighbours'] as int? ?? 0,
+        scoreGuessNeighbours: json['scoreGuessNeighbours'] as int? ?? 0,
         completedGuessPopulation: json['completedGuessPopulation'] as bool? ?? false,
         wonGuessPopulation: json['wonGuessPopulation'] as bool? ?? false,
         guessesUsedPopulation: json['guessesUsedPopulation'] as int? ?? 0,
+        scoreGuessPopulation: json['scoreGuessPopulation'] as int? ?? 0,
         completedGuessOutline: json['completedGuessOutline'] as bool? ?? false,
         wonGuessOutline: json['wonGuessOutline'] as bool? ?? false,
         guessesUsedOutline: json['guessesUsedOutline'] as int? ?? 0,
+        scoreGuessOutline: json['scoreGuessOutline'] as int? ?? 0,
         frozenModeNames: ((json['frozenModeNames'] as List?) ?? const [])
             .map((e) => e as String)
             .toSet(),
@@ -370,6 +412,7 @@ class ModeStreak {
 class PlayerStats {
   final int totalPlayed;
   final int totalWon;
+  final int totalScore;
   final Map<int, int> guessDistributionCountry;
   final Map<int, int> guessDistributionCapital;
   final Map<int, int> guessDistributionFlag;
@@ -386,6 +429,7 @@ class PlayerStats {
   const PlayerStats({
     this.totalPlayed = 0,
     this.totalWon = 0,
+    this.totalScore = 0,
     this.guessDistributionCountry = const {},
     this.guessDistributionCapital = const {},
     this.guessDistributionFlag = const {},
@@ -414,6 +458,7 @@ class PlayerStats {
   PlayerStats withUpdatedStreak(GameMode mode, ModeStreak streak) => PlayerStats(
         totalPlayed: totalPlayed,
         totalWon: totalWon,
+        totalScore: totalScore,
         guessDistributionCountry: guessDistributionCountry,
         guessDistributionCapital: guessDistributionCapital,
         guessDistributionFlag: guessDistributionFlag,
@@ -426,6 +471,26 @@ class PlayerStats {
         neighboursStreak: mode == GameMode.guessNeighbours ? streak : neighboursStreak,
         populationStreak: mode == GameMode.guessPopulation ? streak : populationStreak,
         outlineStreak: mode == GameMode.guessOutline ? streak : outlineStreak,
+      );
+
+  /// Returns a copy with [delta] added to the running total score —
+  /// everything else stays untouched.
+  PlayerStats withAddedScore(int delta) => PlayerStats(
+        totalPlayed: totalPlayed,
+        totalWon: totalWon,
+        totalScore: totalScore + delta,
+        guessDistributionCountry: guessDistributionCountry,
+        guessDistributionCapital: guessDistributionCapital,
+        guessDistributionFlag: guessDistributionFlag,
+        guessDistributionNeighbours: guessDistributionNeighbours,
+        guessDistributionPopulation: guessDistributionPopulation,
+        guessDistributionOutline: guessDistributionOutline,
+        countryStreak: countryStreak,
+        capitalStreak: capitalStreak,
+        flagStreak: flagStreak,
+        neighboursStreak: neighboursStreak,
+        populationStreak: populationStreak,
+        outlineStreak: outlineStreak,
       );
 
   int get currentStreak => [

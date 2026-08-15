@@ -5,15 +5,25 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/app_theme.dart';
 import '../providers/worldcup_provider.dart';
 import '../../../data/models/capital_entry.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../../../core/utils/banner_position_route.dart';
 
 // ── Entry Menu ─────────────────────────────────────────────────────────────
 
-class WorldCupMenuScreen extends ConsumerWidget {
+class WorldCupMenuScreen extends ConsumerStatefulWidget {
   const WorldCupMenuScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WorldCupMenuScreen> createState() => _WorldCupMenuScreenState();
+}
+
+class _WorldCupMenuScreenState extends ConsumerState<WorldCupMenuScreen>
+    with BannerPositionRoute<WorldCupMenuScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
+  @override
+  Widget build(BuildContext context) {
     final wcAsync = ref.watch(wcProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppColors.bg : AppColors.bgLight;
@@ -23,7 +33,8 @@ class WorldCupMenuScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
@@ -229,18 +240,21 @@ class _RoundCard extends StatelessWidget {
 
 // ── Game Screen ────────────────────────────────────────────────────────────
 
-class WorldCupGameScreen extends StatefulWidget {
+class WorldCupGameScreen extends ConsumerStatefulWidget {
   final WCRound round;
   final List<WCTeam> teams;
 
   const WorldCupGameScreen({super.key, required this.round, required this.teams});
 
   @override
-  State<WorldCupGameScreen> createState() => _WorldCupGameScreenState();
+  ConsumerState<WorldCupGameScreen> createState() => _WorldCupGameScreenState();
 }
 
-class _WorldCupGameScreenState extends State<WorldCupGameScreen>
-    with SingleTickerProviderStateMixin {
+class _WorldCupGameScreenState extends ConsumerState<WorldCupGameScreen>
+    with SingleTickerProviderStateMixin, BannerPositionRoute<WorldCupGameScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   late List<WCTeam> _shuffled;
@@ -348,7 +362,8 @@ class _WorldCupGameScreenState extends State<WorldCupGameScreen>
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: Column(
           children: [
@@ -680,7 +695,8 @@ class _WorldCupGameScreenState extends State<WorldCupGameScreen>
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),

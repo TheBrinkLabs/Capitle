@@ -14,7 +14,6 @@ import '../../settings/providers/settings_provider.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/widgets/app_transitions.dart';
 import '../widgets/app_logo.dart';
-import '../widgets/banner_ad_widget.dart';
 import '../../worldcup/screens/worldcup_screen.dart';
 import '../../../core/widgets/streak_break_dialog.dart';
 
@@ -114,7 +113,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      // The persistent banner ad (see PersistentBannerAd) is positioned
+      // here by MainScaffold based on the active tab — this screen just
+      // reserves the same visual space it always has.
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: BlackGlowBackground(
         isDark: isDark,
         child: Stack(
@@ -136,9 +139,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Row(children: [
-                              const AppLogoMark(size: 44, borderRadius: 13),
-                              const SizedBox(width: 12),
-                              const AppWordmark(fontSize: 26),
+                              // Split 2:1 with a matching 8px gutter, same
+                              // as the 3-way WIN RATE/PLAYED/BEST row below
+                              // — keeps the SCORE card here essentially the
+                              // same size as BEST, sitting right above it.
+                              Expanded(
+                                flex: 2,
+                                child: Row(children: [
+                                  const AppLogoMark(size: 44, borderRadius: 13),
+                                  const SizedBox(width: 12),
+                                  const AppWordmark(fontSize: 26),
+                                ]),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 1,
+                                child: _MiniStat(
+                                  value: '${stats.totalScore}',
+                                  icon: '⭐',
+                                  label: 'SCORE',
+                                  color: AppColors.blue,
+                                  isDark: isDark,
+                                ),
+                              ),
                             ]),
                             const SizedBox(height: 16),
                             Row(children: [

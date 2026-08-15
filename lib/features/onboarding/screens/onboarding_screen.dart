@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../home/widgets/app_logo.dart';
-import '../../game/screens/game_screen.dart';
-import '../../../data/models/game_models.dart';
-import '../../../main_scaffold.dart';
+import 'profile_setup_screen.dart';
 
 /// Shown exactly once, on the very first launch, right after the splash
 /// screen. A 4-step animated carousel (auto-advancing but swipeable) that
@@ -52,6 +50,21 @@ const _slides = [
     title: 'Streaks are independent',
     subtitle: 'Miss one puzzle and the rest of your streaks keep going.',
   ),
+  _Slide(
+    emoji: '💡',
+    title: 'Stuck? Get a clue',
+    subtitle: "Tap the lightbulb for the first letter — spend a guess, or watch a quick ad for a free one.",
+  ),
+  _Slide(
+    emoji: '🏋️',
+    title: 'Practice anytime',
+    subtitle: 'Unlimited rounds by region — track your best score and try to beat your record.',
+  ),
+  _Slide(
+    emoji: '🏆',
+    title: 'Compete in the League',
+    subtitle: 'Score weekly, climb from Bronze to Platinum, and get promoted or relegated every Monday.',
+  ),
 ];
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
@@ -87,11 +100,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _start() {
     widget.onSeen?.call();
     if (widget.isFirstLaunch) {
+      // Profile setup (skippable) decides where to go next — for a true
+      // first launch that's MainScaffold + a live Flag puzzle, same as
+      // this screen used to navigate to directly.
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainScaffold()),
-      );
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const GameScreen(mode: GameMode.guessFlag)),
+        MaterialPageRoute(builder: (_) => const ProfileSetupScreen(mode: ProfileSetupMode.firstLaunch)),
       );
     } else {
       // Opened as a refresher from Settings — just close back to it.

@@ -2,24 +2,90 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme/app_theme.dart';
+import 'core/utils/route_observer.dart';
 import 'features/home/screens/home_screen.dart';
+import 'features/home/widgets/banner_ad_widget.dart';
+import 'features/league/screens/league_screen.dart';
 import 'features/stats/screens/stats_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
 
 final _navIndexProvider = StateProvider<int>((ref) => 0);
 
-class MainScaffold extends ConsumerWidget {
+// Home (0) and Stats (2) have always shown the banner; League (1) and
+// Settings (3) never have — this preserves that exactly, just now driven
+// by the single persistent banner instead of a per-tab one.
+BannerPosition _bannerPositionForTab(int index) =>
+    (index == 0 || index == 2) ? BannerPosition.bottomAboveNav : BannerPosition.hidden;
+
+class MainScaffold extends ConsumerStatefulWidget {
   const MainScaffold({super.key});
 
   static const _screens = [
     HomeScreen(),
+    LeagueScreen(),
     StatsScreen(),
     SettingsScreen(),
   ];
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MainScaffold> createState() => _MainScaffoldState();
+}
+
+class _MainScaffoldState extends ConsumerState<MainScaffold> implements RouteAware {
+  @override
+  void initState() {
+    super.initState();
+    // Deferred the same way main.dart's _rescheduleNotifications is —
+    // writing to another provider synchronously during initState/build
+    // risks "setState during build" since PersistentBannerAd watches
+    // bannerPositionProvider reactively.
+    _applyBannerPosition();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context) as PageRoute);
+  }
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  // Popping a pushed screen (a game, a result screen, ...) back to
+  // MainScaffold reveals it again without changing _navIndexProvider, so
+  // the ref.listen below never fires — without this, the banner keeps
+  // whatever position/offset the popped screen last set (e.g. flush
+  // BannerPosition.bottom instead of Home's bottomAboveNav), which visually
+  // overlaps the tab bar. Re-apply the current tab's position whenever this
+  // route becomes visible again.
+  @override
+  void didPopNext() => _applyBannerPosition();
+
+  @override
+  void didPush() {}
+  @override
+  void didPop() {}
+  @override
+  void didPushNext() {}
+
+  void _applyBannerPosition() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(bannerPositionProvider.notifier).state =
+            _bannerPositionForTab(ref.read(_navIndexProvider));
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final index = ref.watch(_navIndexProvider);
+    ref.listen(_navIndexProvider, (previous, next) {
+      ref.read(bannerPositionProvider.notifier).state = _bannerPositionForTab(next);
+    });
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final navBg = isDark ? AppColors.surface : AppColors.surfaceLight;
@@ -32,7 +98,7 @@ class MainScaffold extends ConsumerWidget {
       child: Scaffold(
         body: IndexedStack(
           index: index,
-          children: _screens,
+          children: MainScaffold._screens,
         ),
         bottomNavigationBar: Container(
           decoration: BoxDecoration(
@@ -44,7 +110,7 @@ class MainScaffold extends ConsumerWidget {
           child: SafeArea(
             top: false,
             child: SizedBox(
-              height: 60,
+              height: kMainNavBarHeight,
               child: Row(
                 children: [
                   _NavItem(
@@ -55,18 +121,25 @@ class MainScaffold extends ConsumerWidget {
                     onTap: () => ref.read(_navIndexProvider.notifier).state = 0,
                   ),
                   _NavItem(
-                    icon: _NavIcon.stats,
-                    label: 'Stats',
+                    icon: _NavIcon.league,
+                    label: 'League',
                     isSelected: index == 1,
                     isDark: isDark,
                     onTap: () => ref.read(_navIndexProvider.notifier).state = 1,
                   ),
                   _NavItem(
-                    icon: _NavIcon.settings,
-                    label: 'Settings',
+                    icon: _NavIcon.stats,
+                    label: 'Stats',
                     isSelected: index == 2,
                     isDark: isDark,
                     onTap: () => ref.read(_navIndexProvider.notifier).state = 2,
+                  ),
+                  _NavItem(
+                    icon: _NavIcon.settings,
+                    label: 'Settings',
+                    isSelected: index == 3,
+                    isDark: isDark,
+                    onTap: () => ref.read(_navIndexProvider.notifier).state = 3,
                   ),
                 ],
               ),
@@ -78,7 +151,7 @@ class MainScaffold extends ConsumerWidget {
   }
 }
 
-enum _NavIcon { home, stats, settings }
+enum _NavIcon { home, league, stats, settings }
 
 class _NavItem extends StatelessWidget {
   final _NavIcon icon;
@@ -137,6 +210,16 @@ class _NavItem extends StatelessWidget {
           color: color,
           child: Icon(
             selected ? Icons.home_rounded : Icons.home_outlined,
+            color: color,
+            size: 24,
+          ),
+        );
+      case _NavIcon.league:
+        return _CustomIcon(
+          selected: selected,
+          color: color,
+          child: Icon(
+            selected ? Icons.emoji_events_rounded : Icons.emoji_events_outlined,
             color: color,
             size: 24,
           ),

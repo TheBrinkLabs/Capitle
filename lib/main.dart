@@ -9,9 +9,14 @@ import 'core/utils/providers.dart';
 import 'core/utils/notification_service.dart';
 import 'core/utils/ad_service.dart';
 import 'core/utils/update_service.dart';
+import 'core/services/firebase_bootstrap.dart';
+import 'core/services/auth_service.dart';
+import 'core/utils/route_observer.dart';
+import 'features/home/widgets/banner_ad_widget.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/home/screens/splash_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
+import 'features/onboarding/screens/league_announcement_screen.dart';
 import 'main_scaffold.dart';
 
 void main() async {
@@ -32,6 +37,15 @@ void main() async {
   // to fire-and-forget below so the UI appears immediately and they
   // initialize in the background instead.
   final prefs = await SharedPreferences.getInstance();
+
+  // Awaited (unlike the fire-and-forget services below) because league
+  // features need a signed-in UID before the widget tree makes routing
+  // decisions (e.g. whether to show the league setup prompt). Both calls
+  // are internally defensive — a Firebase outage or offline cold start
+  // never blocks the app beyond ensureSignedIn's own timeout, it just
+  // leaves league features unavailable until connectivity returns.
+  await initFirebase();
+  await authService.ensureSignedIn();
 
   GoogleFonts.dmSans();
 
@@ -64,11 +78,15 @@ class CapitleApp extends ConsumerStatefulWidget {
 
 class _CapitleAppState extends ConsumerState<CapitleApp> {
   static const _onboardingKey = 'has_seen_onboarding';
+  static const _leagueAnnouncementKey = 'has_seen_league_announcement';
 
   bool _showSplash = true;
 
   bool get _hasSeenOnboarding =>
       ref.read(sharedPrefsProvider).getBool(_onboardingKey) ?? false;
+
+  bool get _hasSeenLeagueAnnouncement =>
+      ref.read(sharedPrefsProvider).getBool(_leagueAnnouncementKey) ?? false;
 
   @override
   void initState() {
@@ -107,13 +125,21 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
       themeMode: settings.flutterThemeMode,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
-      // Apply font scale globally via MediaQuery
+      navigatorObservers: [routeObserver],
+      // Apply font scale globally via MediaQuery, and layer the single
+      // persistent banner ad above everything — see banner_ad_widget.dart
+      // for why this lives here instead of inside individual screens.
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(settings.fontScale),
           ),
-          child: child!,
+          child: Stack(
+            children: [
+              child!,
+              const PersistentBannerAd(),
+            ],
+          ),
         );
       },
       home: _showSplash
@@ -122,13 +148,25 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
                 if (mounted) setState(() => _showSplash = false);
               },
             )
-          : (_hasSeenOnboarding
-              ? const MainScaffold()
-              : OnboardingScreen(
+          : (!_hasSeenOnboarding
+              ? OnboardingScreen(
                   onSeen: () async {
-                    await ref.read(sharedPrefsProvider).setBool(_onboardingKey, true);
+                    // First-time users get the league slide as part of
+                    // onboarding itself, so they should never see the
+                    // separate announcement screen right after — set both
+                    // flags together.
+                    final prefs = ref.read(sharedPrefsProvider);
+                    await prefs.setBool(_onboardingKey, true);
+                    await prefs.setBool(_leagueAnnouncementKey, true);
                   },
-                )),
+                )
+              : (!_hasSeenLeagueAnnouncement
+                  ? LeagueAnnouncementScreen(
+                      onSeen: () async {
+                        await ref.read(sharedPrefsProvider).setBool(_leagueAnnouncementKey, true);
+                      },
+                    )
+                  : const MainScaffold())),
     );
   }
 }

@@ -10,8 +10,9 @@ import '../../../core/widgets/app_effects.dart';
 import '../../../core/widgets/app_transitions.dart';
 import '../providers/game_provider.dart';
 import 'result_screen.dart';
-import '../../home/widgets/banner_ad_widget.dart';
 import '../../../core/widgets/clue_ad_screen.dart';
+import '../../../core/utils/banner_position_route.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
 
 class GameScreen extends ConsumerStatefulWidget {
   final GameMode mode;
@@ -22,7 +23,10 @@ class GameScreen extends ConsumerStatefulWidget {
 }
 
 class _GameScreenState extends ConsumerState<GameScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, BannerPositionRoute<GameScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.top;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   List<String> _suggestions = [];
@@ -287,11 +291,13 @@ class _GameScreenState extends ConsumerState<GameScreen>
       backgroundColor: bg,
       body: Column(
         children: [
-          // Banner moves above the content on this screen rather than
-          // sitting as bottomNavigationBar — the text field's keyboard
-          // covers the bottom of the screen while guessing, which would
-          // hide a bottom banner entirely.
-          const BannerAdWidget(atTop: true),
+          // Reserves the space the persistent banner ad occupies (see
+          // PersistentBannerAd in banner_ad_widget.dart) — the ad itself
+          // now lives above the Navigator, positioned here via
+          // BannerPositionRoute rather than owned by this screen. Kept at
+          // the top rather than the bottom since the text field's
+          // keyboard covers the bottom of the screen while guessing.
+          const SafeArea(top: true, bottom: false, child: SizedBox(height: 50)),
           Expanded(
             child: GlowMesh(
         isDark: isDark,

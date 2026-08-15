@@ -13,7 +13,8 @@ import '../../../core/utils/providers.dart';
 import '../providers/game_provider.dart';
 import '../../stats/providers/stats_provider.dart';
 import '../../settings/providers/settings_provider.dart';
-import '../../home/widgets/banner_ad_widget.dart';
+import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../../../core/utils/banner_position_route.dart';
 import 'game_screen.dart';
 import 'neighbours_screen.dart';
 import 'population_screen.dart';
@@ -43,7 +44,11 @@ class ResultScreen extends ConsumerStatefulWidget {
   ConsumerState<ResultScreen> createState() => _ResultScreenState();
 }
 
-class _ResultScreenState extends ConsumerState<ResultScreen> {
+class _ResultScreenState extends ConsumerState<ResultScreen>
+    with BannerPositionRoute<ResultScreen> {
+  @override
+  BannerPosition get bannerPosition => BannerPosition.bottom;
+
   bool _celebrationChecked = false;
 
   @override
@@ -105,6 +110,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                 builder: (_) => DailyCompleteScreen(
                   activeModes: settings.activeModes,
                   stats: stats,
+                  todayScore: dayRecord.totalScoreFor(settings.activeModes),
                 ),
                 fullscreenDialog: true,
               ),
@@ -161,7 +167,8 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
 
     return Scaffold(
       backgroundColor: bg,
-      bottomNavigationBar: const BannerAdWidget(),
+      bottomNavigationBar:
+          const SafeArea(top: false, bottom: true, child: SizedBox(height: 50)),
       body: BlackGlowBackground(
         isDark: isDark,
         child: Stack(
@@ -358,6 +365,12 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                         _ResultStat(
                           value: '${stats.totalPlayed}',
                           label: 'Played',
+                        ),
+                        const SizedBox(width: 10),
+                        _ResultStat(
+                          value: '${dayRecord.scoreForMode(widget.mode)}',
+                          label: 'Score',
+                          color: AppColors.blue,
                         ),
                       ],
                     ),
