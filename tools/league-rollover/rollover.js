@@ -4,7 +4,10 @@ const admin = require('firebase-admin');
 const { isoWeekId, currentWeekStartUtc, addDays } = require('./isoWeek');
 const { assignRoomsForTier } = require('./assignRooms');
 
-const TIERS = ['bronze', 'silver', 'gold', 'platinum'];
+// Platinum deliberately excluded for now — see the matching note by
+// kActiveTiers in lib/features/league/widgets/league_tier_badge.dart.
+// To bring it back, add 'platinum' here too.
+const TIERS = ['bronze', 'silver', 'gold'];
 const MODES = ['guessCountry', 'guessCapital', 'guessFlag', 'guessNeighbours', 'guessPopulation', 'guessOutline'];
 
 function tierAbove(tier) {
@@ -46,7 +49,7 @@ async function main() {
     console.log(`Found ${roomsSnap.size} rooms for ${justEndedWeekId}`);
 
     /** @type {Record<string, {uid: string, tier: string}[]>} incoming pool per NEXT tier */
-    const incomingPools = { bronze: [], silver: [], gold: [], platinum: [] };
+    const incomingPools = { bronze: [], silver: [], gold: [] };
     let playersProcessed = 0;
 
     for (const roomDoc of roomsSnap.docs) {

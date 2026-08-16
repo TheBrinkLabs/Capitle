@@ -52,7 +52,7 @@ class LeagueAnnouncementScreen extends StatelessWidget {
                       letterSpacing: -0.5, color: textColor)),
                   const SizedBox(height: 10),
                   Text(
-                    'Compete weekly against other players. Score points for every correct answer, climb from Bronze to Platinum, and get promoted or relegated each Monday — just like Duolingo leagues.',
+                    'Compete weekly against other players. Score points for every correct answer, climb from Bronze to Gold, and get promoted or relegated each Monday — just like Duolingo leagues.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 14, height: 1.4, color: textMuted),
                   ),

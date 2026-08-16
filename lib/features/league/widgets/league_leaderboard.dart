@@ -3,6 +3,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../data/models/country_flag_data.dart';
 import '../providers/league_provider.dart';
+import 'league_tier_badge.dart' show kTopTier;
 
 class LeagueLeaderboard extends StatelessWidget {
   final List<LeagueMemberEntry> members;
@@ -20,7 +21,7 @@ class LeagueLeaderboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canPromote = tier != 'platinum';
+    final canPromote = tier != kTopTier;
     final canRelegate = tier != 'bronze';
     final promotionZone = canPromote ? 3 : 0;
     final relegationZone = canRelegate ? 3 : 0;

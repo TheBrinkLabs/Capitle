@@ -1,5 +1,17 @@
 import 'package:flutter/material.dart';
 
+/// Tiers currently live in the league. Platinum is deliberately not in
+/// this list yet — the room-assignment fallback (a single, possibly
+/// tiny room when a tier can't fill 12-19 members) means a brand-new
+/// top tier would likely sit near-empty for weeks with low player
+/// counts. Bronze/Silver/Gold gives Gold real headroom to fill up
+/// first. To bring Platinum back: add it here, add it back to `TIERS`
+/// in tools/league-rollover/rollover.js, and restore the "Bronze to
+/// Platinum" copy in onboarding_screen.dart and
+/// league_announcement_screen.dart.
+const kActiveTiers = ['bronze', 'silver', 'gold'];
+const kTopTier = 'gold';
+
 const _tierColors = {
   'bronze': Color(0xFFCD7F32),
   'silver': Color(0xFFC0C0C0),

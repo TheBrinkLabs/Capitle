@@ -8,8 +8,8 @@
 /// product spec — easy to adjust once real play data exists.
 library;
 
-const _fullSpeedBonusUntil = Duration(seconds: 10);
-const _zeroSpeedBonusAt = Duration(seconds: 60);
+const _fullSpeedBonusUntil = Duration(seconds: 6);
+const _zeroSpeedBonusAt = Duration(seconds: 45);
 
 int speedBonus(Duration elapsed) {
   if (elapsed <= _fullSpeedBonusUntil) return 20;

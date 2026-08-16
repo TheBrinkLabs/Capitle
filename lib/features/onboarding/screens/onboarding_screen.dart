@@ -63,7 +63,7 @@ const _slides = [
   _Slide(
     emoji: '🏆',
     title: 'Compete in the League',
-    subtitle: 'Score weekly, climb from Bronze to Platinum, and get promoted or relegated every Monday.',
+    subtitle: 'Score weekly, climb from Bronze to Gold, and get promoted or relegated every Monday.',
   ),
 ];
 

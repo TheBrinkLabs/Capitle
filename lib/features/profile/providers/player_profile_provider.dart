@@ -4,6 +4,7 @@ import '../../../core/utils/nickname_generator.dart';
 import '../../../core/utils/country_locale.dart';
 import '../../../data/models/player_profile.dart';
 import '../../../data/repositories/player_profile_repository.dart';
+import '../../league/widgets/league_tier_badge.dart' show kActiveTiers;
 
 final playerProfileRepositoryProvider = Provider<PlayerProfileRepository>((ref) {
   return PlayerProfileRepository(ref.watch(sharedPrefsProvider));
@@ -47,7 +48,7 @@ class PlayerProfileNotifier extends Notifier<PlayerProfile> {
   /// true on the very first call — no prior tier means nothing to compare
   /// against yet).
   Future<bool> noteTierAndCheckPromotion(String tier) async {
-    const order = ['bronze', 'silver', 'gold', 'platinum'];
+    const order = kActiveTiers;
     final previous = state.lastKnownTier;
     state = state.copyWith(lastKnownTier: tier);
     await _persist();
