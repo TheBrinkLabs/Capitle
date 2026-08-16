@@ -69,7 +69,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
           final pendingJoin = data['pendingJoin'] as bool? ?? true;
 
           if (roomId == null || pendingJoin) {
-            return _WaitingForMonday(isDark: isDark, tier: tier);
+            return _WaitingToJoin(isDark: isDark, tier: tier);
           }
 
           final uid = ref.watch(uidProvider);
@@ -169,16 +169,19 @@ class _SetupPrompt extends StatelessWidget {
   }
 }
 
-class _WaitingForMonday extends StatelessWidget {
+class _WaitingToJoin extends StatelessWidget {
   final bool isDark;
   final String tier;
-  const _WaitingForMonday({required this.isDark, required this.tier});
+  const _WaitingToJoin({required this.isDark, required this.tier});
 
   @override
   Widget build(BuildContext context) {
-    final remaining = timeUntilNextRollover();
-    final days = remaining.inDays;
-    final hours = remaining.inHours % 24;
+    // New joiners get swept into a Bronze room together once a day (see
+    // assignNewJoiners.js) rather than waiting for the next Monday
+    // rollover — caps the wait at ~24h instead of up to 6 days.
+    final remaining = timeUntilNextDailyJoin();
+    final hours = remaining.inHours;
+    final minutes = remaining.inMinutes % 60;
 
     return Center(
       child: Padding(
@@ -195,11 +198,11 @@ class _WaitingForMonday extends StatelessWidget {
                 fontFamily: 'Outfit', fontSize: 19, fontWeight: FontWeight.w800,
                 color: isDark ? AppColors.textDark : AppColors.textLight)),
             const SizedBox(height: 6),
-            Text('Your first league room forms Monday 00:00 UTC.',
+            Text("You'll be placed in a room with other new players tomorrow.",
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: isDark ? AppColors.textDimDark : AppColors.textDimLight)),
             const SizedBox(height: 12),
-            Text('$days day${days == 1 ? '' : 's'} $hours hr${hours == 1 ? '' : 's'} to go',
+            Text('$hours hr${hours == 1 ? '' : 's'} $minutes min to go',
                 style: const TextStyle(fontFamily: 'Outfit', fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.teal)),
             const SizedBox(height: 14),
             LeagueTierBadge(tier: tier),

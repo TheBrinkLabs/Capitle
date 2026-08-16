@@ -57,3 +57,20 @@ DateTime nextWeekStartUtc([DateTime? now]) =>
 
 Duration timeUntilNextRollover([DateTime? now]) =>
     nextWeekStartUtc(now).difference((now ?? DateTime.now()).toUtc());
+
+/// The daily new-joiner room assignment (tools/league-rollover/
+/// assignNewJoiners.js) runs once a day at this UTC hour — separate from
+/// the weekly Monday-00:00 rollover, so a new signup waits at most ~24h
+/// to be placed in a room with other same-day joiners, instead of up to
+/// 6 days for the next Monday. Must stay in lockstep with the identical
+/// hour hardcoded in that script's own cron schedule.
+const _dailyJoinHourUtc = 12;
+
+DateTime nextDailyJoinUtc([DateTime? now]) {
+  final n = (now ?? DateTime.now()).toUtc();
+  final todayCutoff = DateTime.utc(n.year, n.month, n.day, _dailyJoinHourUtc);
+  return n.isBefore(todayCutoff) ? todayCutoff : todayCutoff.add(const Duration(days: 1));
+}
+
+Duration timeUntilNextDailyJoin([DateTime? now]) =>
+    nextDailyJoinUtc(now).difference((now ?? DateTime.now()).toUtc());

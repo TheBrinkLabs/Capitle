@@ -23,7 +23,7 @@ class LeagueMemberEntry {
 
 /// The current player's players/{uid} document, watched live — this is
 /// what tells the League tab whether the player has a profile yet, is
-/// waiting for Monday, or belongs to an active room.
+/// waiting to be placed in a room, or belongs to an active room.
 final playerDocProvider =
     StreamProvider.autoDispose<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
   if (!firebaseAvailable) return const Stream.empty();

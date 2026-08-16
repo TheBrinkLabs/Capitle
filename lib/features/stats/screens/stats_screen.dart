@@ -5,6 +5,7 @@ import '../../../data/models/game_models.dart';
 import '../providers/stats_provider.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../league/providers/week_history_provider.dart';
+import '../../league/providers/league_provider.dart' show playerDocProvider;
 import '../widgets/score_trend_chart.dart';
 
 class StatsScreen extends ConsumerWidget {
@@ -158,6 +159,46 @@ class StatsScreen extends ConsumerWidget {
                       child: ScoreTrendChart(weeks: weeks, isDark: isDark),
                     );
                   },
+                );
+              }),
+
+              const SizedBox(height: 16),
+
+              // ── World Champion count — rank #1 across every top-tier
+              // room (currently Gold) at a week's rollover. Reads
+              // straight off the player doc rather than weekHistory
+              // since it's a simple running total, same source
+              // worldChampionCount is written to in rollover.js.
+              Consumer(builder: (context, ref, _) {
+                final playerDocAsync = ref.watch(playerDocProvider);
+                final raw = playerDocAsync.valueOrNull?.data()?['worldChampionCount'];
+                final champCount = (raw as num?)?.toInt() ?? 0;
+                return MatteCard(
+                  isDark: isDark,
+                  sheen: champCount > 0 ? MatteSheen.gold : MatteSheen.none,
+                  borderRadius: 20,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('👑', style: TextStyle(fontSize: 28)),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TabularNumber('$champCount', style: const TextStyle(
+                            fontFamily: 'Outfit', fontSize: 28, fontWeight: FontWeight.w800,
+                            color: AppColors.yellow, letterSpacing: -1, height: 1,
+                          )),
+                          Text('WORLD CHAMPION', style: TextStyle(
+                            fontSize: 10, letterSpacing: 2,
+                            fontWeight: FontWeight.w600, color: textMuted,
+                          )),
+                        ],
+                      ),
+                    ],
+                  ),
                 );
               }),
 

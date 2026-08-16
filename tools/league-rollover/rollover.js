@@ -52,6 +52,12 @@ async function main() {
     const incomingPools = { bronze: [], silver: [], gold: [] };
     let playersProcessed = 0;
 
+    // Rank-1 finisher from every top-tier room this week (there may be
+    // more than one room once a tier outgrows MAX_SIZE) — the single
+    // best of these becomes the week's World Champion, decided after
+    // every room has been scored below.
+    const topTierCandidates = [];
+
     for (const roomDoc of roomsSnap.docs) {
       const room = roomDoc.data();
       const tier = room.tier;
@@ -69,6 +75,10 @@ async function main() {
       }));
 
       scored.sort((a, b) => (b.score - a.score) || (b.streak - a.streak));
+
+      if (!tierAbove(tier) && scored.length > 0) {
+        topTierCandidates.push({ ...scored[0], roomId: roomDoc.id });
+      }
 
       const promoteCount = tierAbove(tier) ? Math.min(3, scored.length) : 0;
       const relegateCount = tierBelow(tier) ? Math.min(3, Math.max(0, scored.length - promoteCount)) : 0;
@@ -96,6 +106,24 @@ async function main() {
         playersProcessed++;
       });
       await batch.commit();
+    }
+
+    // ── World Champion: best rank-1 finisher across every top-tier room ──
+    let worldChampionUid = null;
+    if (topTierCandidates.length > 0) {
+      topTierCandidates.sort((a, b) => (b.score - a.score) || (b.streak - a.streak));
+      const champion = topTierCandidates[0];
+      worldChampionUid = champion.uid;
+
+      await db.collection('players').doc(champion.uid)
+        .collection('weekHistory').doc(justEndedWeekId)
+        .set({ isWorldChampion: true }, { merge: true });
+      await db.collection('players').doc(champion.uid).set({
+        worldChampionCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      console.log(`World Champion for ${justEndedWeekId}: ${champion.uid} (score ${champion.score}, room ${champion.roomId})`);
     }
 
     // ── 2. New entrants join Bronze only ────────────────────────────────
@@ -147,6 +175,7 @@ async function main() {
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
       roomsCreated,
       playersProcessed,
+      worldChampionUid,
     }, { merge: true });
 
     console.log(`Rollover complete: ${roomsCreated} rooms created, ${playersProcessed} players processed.`);

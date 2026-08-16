@@ -6,7 +6,8 @@
   "type": "commonjs",
   "main": "rollover.js",
   "scripts": {
-    "start": "node rollover.js"
+    "start": "node rollover.js",
+    "daily-join": "node assignNewJoiners.js"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0"
