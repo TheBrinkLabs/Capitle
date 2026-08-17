@@ -56,6 +56,7 @@ class _WorldChampionDialogState extends State<_WorldChampionDialog>
   static const _crownStartDelay = Duration(milliseconds: 300);
   static const _crownDuration = Duration(milliseconds: 750);
   static const _confettiDuration = Duration(milliseconds: 3400);
+  static const _headSize = 90.0;
 
   @override
   void initState() {
@@ -138,32 +139,34 @@ class _WorldChampionDialogState extends State<_WorldChampionDialog>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ── C logo with the crown dropping onto it ──────────
+                // ── C "head" with the crown dropping onto it ────────
                 SizedBox(
-                  height: 130,
+                  height: 150,
                   child: Stack(
                     alignment: Alignment.center,
                     clipBehavior: Clip.none,
                     children: [
-                      Align(
-                        alignment: const Alignment(0, 0.35),
-                        child: TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0.3, end: 1.0),
-                          duration: _logoDuration,
-                          curve: Curves.elasticOut,
-                          builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-                          child: const AppLogoMark(size: 84, borderRadius: 22),
-                        ),
+                      // Round, not the app's usual rounded-square icon —
+                      // reads as a head to be crowned rather than an app
+                      // tile. borderRadius = size / 2 makes it a circle.
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.3, end: 1.0),
+                        duration: _logoDuration,
+                        curve: Curves.elasticOut,
+                        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                        child: const AppLogoMark(size: _headSize, borderRadius: _headSize / 2),
                       ),
                       AnimatedBuilder(
                         animation: _crownController,
                         builder: (context, child) {
                           final t = Curves.elasticOut.transform(_crownController.value);
-                          // Travels from just above the logo down onto it —
-                          // deliberately a short, contained drop (not from
-                          // off-card) so it never has to escape the
-                          // MatteCard's own clipped bounds.
-                          final y = -58.0 + (46.0 * t);
+                          // Travels a short distance down onto the head —
+                          // lands with its base overlapping the top of the
+                          // circle slightly, like it's actually resting
+                          // there rather than floating above it. Contained
+                          // drop (not from off-card) so it never has to
+                          // escape the MatteCard's own clipped bounds.
+                          final y = -104.0 + (39.0 * t);
                           final rotation = (1 - _crownController.value) * -0.25;
                           return Opacity(
                             opacity: _crownController.value == 0 ? 0 : 1,
@@ -173,7 +176,18 @@ class _WorldChampionDialogState extends State<_WorldChampionDialog>
                             ),
                           );
                         },
-                        child: const Text('👑', style: TextStyle(fontSize: 48)),
+                        // Width-matched to the head via FittedBox rather
+                        // than a fixed font size, so the crown always
+                        // spans exactly the same width as whatever the
+                        // head renders at.
+                        child: const SizedBox(
+                          width: _headSize,
+                          height: _headSize,
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: Text('👑', style: TextStyle(fontSize: 64)),
+                          ),
+                        ),
                       ),
                     ],
                   ),
