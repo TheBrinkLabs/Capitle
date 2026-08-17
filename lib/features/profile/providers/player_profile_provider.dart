@@ -56,6 +56,18 @@ class PlayerProfileNotifier extends Notifier<PlayerProfile> {
     return order.indexOf(tier) > order.indexOf(previous);
   }
 
+  /// Records the World Champion count last seen from Firestore, and
+  /// reports whether it just went up since the previously recorded count
+  /// (never true on the very first call — no prior count means nothing
+  /// to compare against yet, same convention as noteTierAndCheckPromotion).
+  Future<bool> noteWorldChampionCountAndCheckNewWin(int count) async {
+    final previous = state.lastKnownWorldChampionCount;
+    state = state.copyWith(lastKnownWorldChampionCount: count);
+    await _persist();
+    if (previous == null) return false;
+    return count > previous;
+  }
+
   Future<void> _persist() async {
     await ref.read(playerProfileRepositoryProvider).save(state);
   }

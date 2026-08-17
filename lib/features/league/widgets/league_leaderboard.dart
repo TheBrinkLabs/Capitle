@@ -87,9 +87,17 @@ class _LeaderboardRow extends StatelessWidget {
         Text(flag, style: const TextStyle(fontSize: 20)),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(entry.nickname, overflow: TextOverflow.ellipsis, style: TextStyle(
-              fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w700,
-              color: isMe ? AppColors.blue : textColor)),
+          child: Row(children: [
+            if (entry.worldChampionCount > 0) ...[
+              const Text('👑', style: TextStyle(fontSize: 13)),
+              const SizedBox(width: 4),
+            ],
+            Flexible(
+              child: Text(entry.nickname, overflow: TextOverflow.ellipsis, style: TextStyle(
+                  fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w700,
+                  color: isMe ? AppColors.blue : textColor)),
+            ),
+          ]),
         ),
         Row(mainAxisSize: MainAxisSize.min, children: [
           const Text('🔥', style: TextStyle(fontSize: 13)),

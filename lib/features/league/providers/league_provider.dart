@@ -11,6 +11,7 @@ class LeagueMemberEntry {
   final String countryCode;
   final int streak;
   final int score;
+  final int worldChampionCount;
 
   const LeagueMemberEntry({
     required this.uid,
@@ -18,6 +19,7 @@ class LeagueMemberEntry {
     required this.countryCode,
     required this.streak,
     required this.score,
+    required this.worldChampionCount,
   });
 }
 
@@ -66,6 +68,7 @@ final leagueRoomMembersProvider =
       countryCode: profile['countryCode'] as String? ?? 'US',
       streak: (profile['currentStreak'] as num?)?.toInt() ?? 0,
       score: total,
+      worldChampionCount: (profile['worldChampionCount'] as num?)?.toInt() ?? 0,
     );
   }));
 

@@ -7,6 +7,7 @@ import '../../../core/utils/providers.dart' show leagueTabActiveProvider;
 import '../../../data/repositories/auth_repository.dart';
 import '../../../features/onboarding/screens/profile_setup_screen.dart';
 import '../../../features/profile/providers/player_profile_provider.dart';
+import '../../../core/widgets/world_champion_celebration.dart';
 import '../providers/league_provider.dart';
 import '../widgets/league_leaderboard.dart';
 import '../widgets/league_promotion_celebration.dart';
@@ -27,12 +28,33 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
     showLeaguePromotionCelebration(context, newTier: tier);
   }
 
+  // A World Champion win (rank #1 in the top tier) always leaves the
+  // player's own tier unchanged — there's nowhere above the top tier to
+  // promote into — so this never fires alongside _checkPromotion for the
+  // same rollover.
+  Future<void> _checkWorldChampion(int count) async {
+    final wonNew = await ref
+        .read(playerProfileProvider.notifier)
+        .noteWorldChampionCountAndCheckNewWin(count);
+    if (!wonNew || !mounted) return;
+    showWorldChampionCelebration(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(playerDocProvider, (previous, next) {
-      final tier = next.valueOrNull?.data()?['tier'] as String?;
-      if (tier == null) return;
-      _checkPromotion(tier);
+      final data = next.valueOrNull?.data();
+      if (data == null) return;
+      final tier = data['tier'] as String?;
+      if (tier != null) _checkPromotion(tier);
+      // worldChampionCount only exists on the doc once the field has been
+      // incremented at least once (rollover.js sets it via
+      // FieldValue.increment, which creates it on first use) — unlike
+      // tier, which is always present from doc creation. Default the
+      // absent case to 0 so the *first* real win is correctly read as
+      // "0 -> 1" instead of silently skipped as "no baseline yet."
+      final championCount = (data['worldChampionCount'] as num?)?.toInt() ?? 0;
+      _checkWorldChampion(championCount);
     });
 
     // playerDocProvider is a live Firestore stream, so it stays fresh on

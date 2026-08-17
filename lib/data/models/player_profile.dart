@@ -4,6 +4,7 @@ class PlayerProfile {
   final String countryCode; // ISO 3166-1 alpha-2, e.g. "GB"
   final bool hasCompletedProfileSetup;
   final String? lastKnownTier; // for detecting a promotion since last launch
+  final int? lastKnownWorldChampionCount; // for detecting a new title since last launch
 
   const PlayerProfile({
     this.nickname,
@@ -11,6 +12,7 @@ class PlayerProfile {
     this.countryCode = 'US',
     this.hasCompletedProfileSetup = false,
     this.lastKnownTier,
+    this.lastKnownWorldChampionCount,
   });
 
   PlayerProfile copyWith({
@@ -19,6 +21,7 @@ class PlayerProfile {
     String? countryCode,
     bool? hasCompletedProfileSetup,
     String? lastKnownTier,
+    int? lastKnownWorldChampionCount,
   }) =>
       PlayerProfile(
         nickname: nickname ?? this.nickname,
@@ -26,6 +29,7 @@ class PlayerProfile {
         countryCode: countryCode ?? this.countryCode,
         hasCompletedProfileSetup: hasCompletedProfileSetup ?? this.hasCompletedProfileSetup,
         lastKnownTier: lastKnownTier ?? this.lastKnownTier,
+        lastKnownWorldChampionCount: lastKnownWorldChampionCount ?? this.lastKnownWorldChampionCount,
       );
 
   Map<String, dynamic> toJson() => {
@@ -34,6 +38,7 @@ class PlayerProfile {
         'countryCode': countryCode,
         'hasCompletedProfileSetup': hasCompletedProfileSetup,
         'lastKnownTier': lastKnownTier,
+        'lastKnownWorldChampionCount': lastKnownWorldChampionCount,
       };
 
   factory PlayerProfile.fromJson(Map<String, dynamic> json) => PlayerProfile(
@@ -42,5 +47,6 @@ class PlayerProfile {
         countryCode: json['countryCode'] as String? ?? 'US',
         hasCompletedProfileSetup: json['hasCompletedProfileSetup'] as bool? ?? false,
         lastKnownTier: json['lastKnownTier'] as String?,
+        lastKnownWorldChampionCount: json['lastKnownWorldChampionCount'] as int?,
       );
 }
