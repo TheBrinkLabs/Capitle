@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../../features/home/widgets/app_logo.dart';
 import 'app_effects.dart';
 
 /// Full-screen celebratory overlay shown when the app notices the player's
@@ -40,25 +41,53 @@ class _WorldChampionDialog extends StatefulWidget {
 
 class _WorldChampionDialogState extends State<_WorldChampionDialog>
     with TickerProviderStateMixin {
+  // Sequence: the C logo pops in first (like a head appearing), then the
+  // crown drops in and settles onto it, and only once it "lands" does the
+  // confetti burst and the rest of the copy reveal — landing the crown is
+  // the payoff moment, not something that should happen simultaneously
+  // with everything else.
+  late final AnimationController _logoController;
+  late final AnimationController _crownController;
   late final AnimationController _confettiController;
   late final AnimationController _glowController;
+  late final AnimationController _textController;
+
+  static const _logoDuration = Duration(milliseconds: 500);
+  static const _crownStartDelay = Duration(milliseconds: 300);
+  static const _crownDuration = Duration(milliseconds: 750);
+  static const _confettiDuration = Duration(milliseconds: 3400);
 
   @override
   void initState() {
     super.initState();
-    _confettiController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    )..forward();
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
+    _logoController = AnimationController(vsync: this, duration: _logoDuration)..forward();
+    _crownController = AnimationController(vsync: this, duration: _crownDuration);
+    _confettiController = AnimationController(vsync: this, duration: _confettiDuration);
+    _textController = AnimationController(vsync: this, duration: const Duration(milliseconds: 450));
+    _glowController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))
+      ..repeat(reverse: true);
+
+    Future.delayed(_crownStartDelay, () {
+      if (!mounted) return;
+      _crownController.forward();
+    });
+
+    // Confetti + the rest of the copy both wait for the crown to actually
+    // land — that's the payoff beat this whole sequence builds to.
+    Future.delayed(_crownStartDelay + _crownDuration, () {
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      _confettiController.forward();
+      _textController.forward();
+    });
   }
 
   @override
   void dispose() {
+    _logoController.dispose();
+    _crownController.dispose();
     _confettiController.dispose();
+    _textController.dispose();
     _glowController.dispose();
     super.dispose();
   }
@@ -92,84 +121,128 @@ class _WorldChampionDialogState extends State<_WorldChampionDialog>
               );
             },
           ),
-          // Confetti bursts — the biggest of the three celebration dialogs.
+          // Confetti bursts — the biggest and longest-lasting of the three
+          // celebration dialogs, doesn't start until the crown lands.
           AnimatedBuilder(
             animation: _confettiController,
             builder: (context, _) => CustomPaint(
               size: const Size(380, 380),
-              painter: _ConfettiPainter(progress: _confettiController.value, pieceCount: 56),
+              painter: _ConfettiPainter(progress: _confettiController.value, pieceCount: 64),
             ),
           ),
           MatteCard(
             isDark: isDark,
             sheen: MatteSheen.gold,
             borderRadius: 28,
-            padding: const EdgeInsets.fromLTRB(28, 34, 28, 24),
+            padding: const EdgeInsets.fromLTRB(28, 30, 28, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0.3, end: 1.0),
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.elasticOut,
-                  builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-                  child: const Text('👑', style: TextStyle(fontSize: 72)),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'WORLD CHAMPION',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Outfit',
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.yellow,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  "You're the Capitle World Champion!",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Outfit',
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.textDark : AppColors.textLight,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Top of the whole league this week — the best of the best.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? AppColors.textDimDark : AppColors.textDimLight,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(
-                    width: double.infinity,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      gradient: AppColors.gradientTealBlue,
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(color: AppColors.teal.withOpacity(0.3), blurRadius: 18, offset: const Offset(0, 5)),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'Amazing!',
-                        style: TextStyle(
-                          fontFamily: 'Outfit',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black,
+                // ── C logo with the crown dropping onto it ──────────
+                SizedBox(
+                  height: 130,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Align(
+                        alignment: const Alignment(0, 0.35),
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.3, end: 1.0),
+                          duration: _logoDuration,
+                          curve: Curves.elasticOut,
+                          builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                          child: const AppLogoMark(size: 84, borderRadius: 22),
                         ),
                       ),
+                      AnimatedBuilder(
+                        animation: _crownController,
+                        builder: (context, child) {
+                          final t = Curves.elasticOut.transform(_crownController.value);
+                          // Travels from just above the logo down onto it —
+                          // deliberately a short, contained drop (not from
+                          // off-card) so it never has to escape the
+                          // MatteCard's own clipped bounds.
+                          final y = -58.0 + (46.0 * t);
+                          final rotation = (1 - _crownController.value) * -0.25;
+                          return Opacity(
+                            opacity: _crownController.value == 0 ? 0 : 1,
+                            child: Transform.translate(
+                              offset: Offset(0, y),
+                              child: Transform.rotate(angle: rotation, child: child),
+                            ),
+                          );
+                        },
+                        child: const Text('👑', style: TextStyle(fontSize: 48)),
+                      ),
+                    ],
+                  ),
+                ),
+                FadeTransition(
+                  opacity: _textController,
+                  child: SlideTransition(
+                    position: Tween(begin: const Offset(0, 0.15), end: Offset.zero)
+                        .animate(CurvedAnimation(parent: _textController, curve: Curves.easeOut)),
+                    child: Column(
+                      children: [
+                        Text(
+                          'WORLD CHAMPION',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Outfit',
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.yellow,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          "You're the Capitle World Champion!",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Outfit',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? AppColors.textDark : AppColors.textLight,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Top of the whole league this week — the best of the best.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? AppColors.textDimDark : AppColors.textDimLight,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: Container(
+                            width: double.infinity,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              gradient: AppColors.gradientTealBlue,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(color: AppColors.teal.withOpacity(0.3), blurRadius: 18, offset: const Offset(0, 5)),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'Amazing!',
+                                style: TextStyle(
+                                  fontFamily: 'Outfit',
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -200,7 +273,10 @@ class _ConfettiPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2 - 40);
-    final fade = (1 - progress).clamp(0.0, 1.0);
+    // Holds at full opacity for the first ~55% of the run instead of
+    // fading linearly from the start — reads as "lasting longer" rather
+    // than just "more pieces that fade at the same old rate."
+    final fade = progress < 0.55 ? 1.0 : (1 - (progress - 0.55) / 0.45).clamp(0.0, 1.0);
     for (final p in _pieces) {
       final dist = p.speed * progress;
       final direction = Offset.fromDirection(p.angle, dist);
