@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme/app_theme.dart';
+import 'core/utils/providers.dart' show navIndexProvider;
 import 'core/utils/route_observer.dart';
 import 'features/home/screens/home_screen.dart';
 import 'features/home/widgets/banner_ad_widget.dart';
 import 'features/league/screens/league_screen.dart';
 import 'features/stats/screens/stats_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
-
-final _navIndexProvider = StateProvider<int>((ref) => 0);
 
 // Home (0) and Stats (2) have always shown the banner; League (1) and
 // Settings (3) never have — this preserves that exactly, just now driven
@@ -55,7 +54,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> implements RouteAwa
   }
 
   // Popping a pushed screen (a game, a result screen, ...) back to
-  // MainScaffold reveals it again without changing _navIndexProvider, so
+  // MainScaffold reveals it again without changing navIndexProvider, so
   // the ref.listen below never fires — without this, the banner keeps
   // whatever position/offset the popped screen last set (e.g. flush
   // BannerPosition.bottom instead of Home's bottomAboveNav), which visually
@@ -75,15 +74,15 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> implements RouteAwa
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(bannerPositionProvider.notifier).state =
-            _bannerPositionForTab(ref.read(_navIndexProvider));
+            _bannerPositionForTab(ref.read(navIndexProvider));
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final index = ref.watch(_navIndexProvider);
-    ref.listen(_navIndexProvider, (previous, next) {
+    final index = ref.watch(navIndexProvider);
+    ref.listen(navIndexProvider, (previous, next) {
       ref.read(bannerPositionProvider.notifier).state = _bannerPositionForTab(next);
     });
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -118,28 +117,28 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> implements RouteAwa
                     label: 'Home',
                     isSelected: index == 0,
                     isDark: isDark,
-                    onTap: () => ref.read(_navIndexProvider.notifier).state = 0,
+                    onTap: () => ref.read(navIndexProvider.notifier).state = 0,
                   ),
                   _NavItem(
                     icon: _NavIcon.league,
                     label: 'League',
                     isSelected: index == 1,
                     isDark: isDark,
-                    onTap: () => ref.read(_navIndexProvider.notifier).state = 1,
+                    onTap: () => ref.read(navIndexProvider.notifier).state = 1,
                   ),
                   _NavItem(
                     icon: _NavIcon.stats,
                     label: 'Stats',
                     isSelected: index == 2,
                     isDark: isDark,
-                    onTap: () => ref.read(_navIndexProvider.notifier).state = 2,
+                    onTap: () => ref.read(navIndexProvider.notifier).state = 2,
                   ),
                   _NavItem(
                     icon: _NavIcon.settings,
                     label: 'Settings',
                     isSelected: index == 3,
                     isDark: isDark,
-                    onTap: () => ref.read(_navIndexProvider.notifier).state = 3,
+                    onTap: () => ref.read(navIndexProvider.notifier).state = 3,
                   ),
                 ],
               ),

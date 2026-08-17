@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/utils/league_scoring.dart';
+import '../../../core/utils/providers.dart' show leagueTabActiveProvider;
 import '../../../data/repositories/auth_repository.dart';
 import '../../../features/onboarding/screens/profile_setup_screen.dart';
 import '../../../features/profile/providers/player_profile_provider.dart';
@@ -32,6 +33,22 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
       final tier = next.valueOrNull?.data()?['tier'] as String?;
       if (tier == null) return;
       _checkPromotion(tier);
+    });
+
+    // playerDocProvider is a live Firestore stream, so it stays fresh on
+    // its own even while this tab is occluded (not disposed) inside
+    // MainScaffold's IndexedStack. leagueRoomMembersProvider is a
+    // one-shot fetch, though — it would otherwise just keep showing
+    // whatever it first fetched, possibly stale by however long since
+    // this tab was last actually visible (e.g. showing 0 streak/score
+    // right after finishing a game whose league write landed after that
+    // first fetch). Force a fresh fetch every time this tab regains
+    // visibility, not just on manual pull-to-refresh.
+    ref.listen(leagueTabActiveProvider, (previous, isActive) {
+      if (isActive && previous != true) {
+        final roomId = ref.read(playerDocProvider).valueOrNull?.data()?['roomId'] as String?;
+        if (roomId != null) ref.invalidate(leagueRoomMembersProvider(roomId));
+      }
     });
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
