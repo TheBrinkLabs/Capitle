@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/utils/league_scoring.dart';
+import '../../../core/utils/nickname_generator.dart';
 import '../../../core/utils/providers.dart' show leagueTabActiveProvider;
 import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/league_repository.dart';
 import '../../../features/onboarding/screens/profile_setup_screen.dart';
 import '../../../features/profile/providers/player_profile_provider.dart';
 import '../../../core/widgets/world_champion_celebration.dart';
@@ -21,6 +23,40 @@ class LeagueScreen extends ConsumerStatefulWidget {
 }
 
 class _LeagueScreenState extends ConsumerState<LeagueScreen> {
+  bool _retryingPlayerDoc = false;
+
+  // Handles a real-world gap: profile setup marks hasCompletedProfileSetup
+  // (a local flag) as true regardless of whether the matching Firestore
+  // players/{uid} write actually succeeded — ensurePlayerDocument() there
+  // is wrapped in a non-fatal try/catch with no retry of its own. A
+  // transient network hiccup during onboarding used to leave a player
+  // permanently stuck on "Setting up your league profile…" with no way
+  // out, having played the app for days without ever noticing anything
+  // was wrong (this is exactly what happened to two real testers). Retry
+  // automatically whenever this screen finds hasCompletedProfileSetup
+  // true but the doc still doesn't exist, plus a manual retry button as
+  // a fallback if the automatic attempt also fails.
+  Future<void> _retryEnsurePlayerDocument() async {
+    if (_retryingPlayerDoc) return;
+    _retryingPlayerDoc = true;
+    try {
+      final uid = ref.read(uidProvider);
+      if (uid == null) return;
+      final profile = ref.read(playerProfileProvider);
+      await ref.read(leagueRepositoryProvider).ensurePlayerDocument(
+            uid: uid,
+            nickname: profile.nickname ?? generateFallbackNickname(),
+            countryCode: profile.countryCode,
+          );
+    } catch (_) {
+      // Swallowed deliberately — playerDocProvider's live stream just
+      // keeps reporting no doc, and this same path retries again next
+      // time this screen rebuilds in that state (e.g. next visit).
+    } finally {
+      _retryingPlayerDoc = false;
+    }
+  }
+
   Future<void> _checkPromotion(String tier) async {
     final promoted =
         await ref.read(playerProfileProvider.notifier).noteTierAndCheckPromotion(tier);
@@ -96,11 +132,13 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
         data: (snap) {
           final data = snap?.data();
           if (data == null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _retryEnsurePlayerDocument());
             return _MessageCard(
               isDark: isDark,
               emoji: '🎯',
               title: 'Setting up your league profile…',
               subtitle: 'This should only take a moment.',
+              onRetry: _retryEnsurePlayerDocument,
             );
           }
           final tier = data['tier'] as String? ?? 'bronze';
@@ -257,10 +295,18 @@ class _MessageCard extends StatelessWidget {
   final String emoji;
   final String title;
   final String subtitle;
-  const _MessageCard({required this.isDark, required this.emoji, required this.title, required this.subtitle});
+  final VoidCallback? onRetry;
+  const _MessageCard({
+    required this.isDark,
+    required this.emoji,
+    required this.title,
+    required this.subtitle,
+    this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -273,6 +319,20 @@ class _MessageCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(subtitle, textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDimDark : AppColors.textDimLight)),
+          // Fallback for whenever the automatic retry (triggered right
+          // alongside this card whenever it's the doc-missing variant)
+          // also doesn't land — e.g. still offline. Harmless no-op tap
+          // for the other _MessageCard use (the plain connectivity error
+          // state), since onRetry is null there.
+          if (onRetry != null) ...[
+            const SizedBox(height: 14),
+            GestureDetector(
+              onTap: onRetry,
+              child: Text('Try again', style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: textMuted,
+                  decoration: TextDecoration.underline)),
+            ),
+          ],
         ]),
       ),
     );
