@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../utils/aluna_availability_service.dart';
 
 // Colors mirror the Aluna house banner's brand (see
 // banner_ad_widget.dart's _AlunaBanner) — kept as their own copy here
@@ -94,6 +95,12 @@ class _AlunaMrecAdState extends State<AlunaMrecAd> with TickerProviderStateMixin
   }
 
   Future<void> _openPlayStore() async {
+    if (!alunaAvailabilityService.isLive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🌿 Aluna — coming soon!'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
     final uri = Uri.parse(_mrecPlayStoreUrl);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

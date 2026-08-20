@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/utils/ad_service.dart';
 import '../../../core/utils/meta_banner_ad.dart';
+import '../../../core/utils/aluna_availability_service.dart';
 
 enum _BannerState { loading, loaded, failed }
 
@@ -536,6 +537,12 @@ class _AlunaBannerState extends State<_AlunaBanner> with TickerProviderStateMixi
   }
 
   Future<void> _openPlayStore() async {
+    if (!alunaAvailabilityService.isLive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🌿 Aluna — coming soon!'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
     final uri = Uri.parse(_alunaPlayStoreUrl);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

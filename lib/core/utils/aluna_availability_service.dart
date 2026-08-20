@@ -1,0 +1,48 @@
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Tracks whether Aluna's Play Store listing has actually gone live yet.
+/// Every Aluna house-ad surface (the banner cross-promo, the clue-slot
+/// MREC fallback) links to the same not-yet-published listing — until
+/// Google is actually serving a real page there, tapping through would
+/// just dump the user on a broken/placeholder Play Store page. Checked
+/// once per cold start in the background (see main.dart's fire-and-forget
+/// init calls) rather than on every tap, and cached — once confirmed
+/// live, it stays live, so a later transient network hiccup can't
+/// regress a real listing back to "coming soon".
+class AlunaAvailabilityService {
+  static const _prefKey = 'aluna_play_store_live';
+  static const _playStoreUrl = 'https://play.google.com/store/apps/details?id=com.brinklabs.aluna';
+
+  bool _isLive = false;
+  SharedPreferences? _prefs;
+
+  bool get isLive => _isLive;
+
+  Future<void> init(SharedPreferences prefs) async {
+    _prefs = prefs;
+    _isLive = prefs.getBool(_prefKey) ?? false;
+    if (_isLive) return; // already confirmed on a previous launch
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      // A published listing returns 200; an unpublished/nonexistent
+      // package id returns 404 — a plain GET is used over HEAD since
+      // Play Store's edge doesn't reliably support HEAD the same way.
+      final response = await http
+          .get(Uri.parse(_playStoreUrl))
+          .timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        _isLive = true;
+        await _prefs?.setBool(_prefKey, true);
+      }
+    } catch (_) {
+      // Offline, timeout, or a Play Store hiccup — leave it as "not
+      // live yet" and just try again next cold start.
+    }
+  }
+}
+
+final alunaAvailabilityService = AlunaAvailabilityService();

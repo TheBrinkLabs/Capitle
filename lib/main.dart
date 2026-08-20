@@ -9,6 +9,7 @@ import 'core/utils/providers.dart';
 import 'core/utils/notification_service.dart';
 import 'core/utils/ad_service.dart';
 import 'core/utils/update_service.dart';
+import 'core/utils/aluna_availability_service.dart';
 import 'core/services/firebase_bootstrap.dart';
 import 'core/services/auth_service.dart';
 import 'core/utils/route_observer.dart';
@@ -67,6 +68,7 @@ void main() async {
   notificationService.init();
   adService.initialize();
   updateService.checkForFlexibleUpdate();
+  alunaAvailabilityService.init(prefs);
 }
 
 class CapitleApp extends ConsumerStatefulWidget {
