@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/ad_service.dart';
 import '../utils/meta_banner_ad.dart';
+import 'aluna_mrec_ad.dart';
 
 /// A "watch an ad for a clue" screen modelled on Wordle's own — an ad
 /// embedded directly in a page WE control, with our own always-visible
@@ -33,7 +34,7 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
   // rewarded video does, so this is a product-level stand-in: give the
   // ad a real chance to actually be seen rather than letting the button
   // be tapped the instant the screen opens.
-  static const _minWatchSeconds = 6;
+  static const _minWatchSeconds = 7;
 
   bool _adFailed = false;
   bool _canContinue = false;
@@ -46,11 +47,11 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
     super.initState();
     // If the ad never calls back at all (success or failure) within
     // this window, don't leave the user stuck waiting on nothing —
-    // treat it the same as a failed load.
+    // fall back to the house ad and start its own watch countdown.
     _loadTimeoutTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && !_adFailed && _countdownTimer == null) {
         setState(() => _adFailed = true);
-        _allowContinueImmediately();
+        _startCountdown();
       }
     });
   }
@@ -60,14 +61,6 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
     _countdownTimer?.cancel();
     _loadTimeoutTimer?.cancel();
     super.dispose();
-  }
-
-  void _allowContinueImmediately() {
-    _countdownTimer?.cancel();
-    setState(() {
-      _secondsRemaining = 0;
-      _canContinue = true;
-    });
   }
 
   void _startCountdown() {
@@ -112,13 +105,7 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
             Expanded(
               child: Center(
                 child: _adFailed
-                    ? Container(
-                        width: 300, height: 250,
-                        decoration: BoxDecoration(
-                          color: surface2,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      )
+                    ? const AlunaMrecAd()
                     : MetaBannerAd(
                         placementId: adService.metaMrecPlacementId,
                         size: MetaBannerSize.mrec,
@@ -127,7 +114,10 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
                           debugPrint('Clue MREC ad failed to load: $errorCode $errorMessage');
                           if (mounted) {
                             setState(() => _adFailed = true);
-                            _allowContinueImmediately();
+                            // Falls back to a real house ad now, not a
+                            // blank box — it still deserves the same
+                            // minimum watch time as a real ad.
+                            _startCountdown();
                           }
                         },
                       ),
