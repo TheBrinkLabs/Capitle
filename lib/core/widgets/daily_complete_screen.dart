@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
 import 'app_effects.dart';
+import 'league_reveal_screen.dart';
 import '../../data/models/game_models.dart';
+import '../../features/home/widgets/banner_ad_widget.dart' show BannerPosition;
+import '../utils/banner_position_route.dart';
 
 /// Shown right after finishing the LAST active daily puzzle — a
 /// screenshot-style recap led by the overall streak (the headline number),
 /// with the per-mode breakdown as supporting detail below. On a milestone
 /// day, callers should show [showStreakCelebration] instead of this (see
-/// streak_celebration.dart) rather than both back to back.
-class DailyCompleteScreen extends StatefulWidget {
+/// streak_celebration.dart) rather than both back to back. Tapping "Next"
+/// continues on to LeagueRevealScreen — the animated before/after league
+/// standing — rather than ending the flow here.
+class DailyCompleteScreen extends ConsumerStatefulWidget {
   final List<GameMode> activeModes;
   final PlayerStats stats;
   final int todayScore;
@@ -21,10 +27,20 @@ class DailyCompleteScreen extends StatefulWidget {
   });
 
   @override
-  State<DailyCompleteScreen> createState() => _DailyCompleteScreenState();
+  ConsumerState<DailyCompleteScreen> createState() => _DailyCompleteScreenState();
 }
 
-class _DailyCompleteScreenState extends State<DailyCompleteScreen> with TickerProviderStateMixin {
+class _DailyCompleteScreenState extends ConsumerState<DailyCompleteScreen>
+    with TickerProviderStateMixin, BannerPositionRoute<DailyCompleteScreen> {
+  // The banner ad sits on top of everything else via a screen-wide
+  // overlay (see PersistentBannerAd) — this screen's own bottom CTA
+  // ("Next") was ending up partially covered by it, since nothing here
+  // reserved space the way ResultScreen's bottomNavigationBar spacer
+  // does. Simplest fix: no banner on this celebratory recap screen at
+  // all, same as League/Settings never show one either.
+  @override
+  BannerPosition get bannerPosition => BannerPosition.hidden;
+
   late final AnimationController _glowController;
   late final AnimationController _popController;
   late final Animation<double> _popScale;
@@ -211,7 +227,12 @@ class _DailyCompleteScreenState extends State<DailyCompleteScreen> with TickerPr
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.mediumImpact();
-                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => LeagueRevealScreen(todayScore: widget.todayScore),
+                        fullscreenDialog: true,
+                      ),
+                    );
                   },
                   child: Container(
                     width: double.infinity,
@@ -223,22 +244,19 @@ class _DailyCompleteScreenState extends State<DailyCompleteScreen> with TickerPr
                         BoxShadow(color: AppColors.teal.withOpacity(0.28), blurRadius: 18, offset: const Offset(0, 5)),
                       ],
                     ),
-                    child: const Center(
-                      child: Text('Nice work',
-                          style: TextStyle(
-                            fontFamily: 'Outfit', fontSize: 15, fontWeight: FontWeight.w700,
-                            color: Colors.black,
-                          )),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Next',
+                            style: TextStyle(
+                              fontFamily: 'Outfit', fontSize: 15, fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            )),
+                        SizedBox(width: 8),
+                        Icon(Icons.arrow_forward_rounded, color: Colors.black, size: 18),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Center(
-                  child: Text('Come back tomorrow for more',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
-                      )),
                 ),
               ],
             ),
