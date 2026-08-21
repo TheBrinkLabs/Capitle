@@ -37,6 +37,17 @@ function tierBelow(tier) {
   return i > 0 ? TIERS[i - 1] : null;
 }
 
+// Promotion/relegation zone size scales with room size instead of a flat
+// 3 — a flat 3 in, say, a 3-player room means the WHOLE room moves at
+// once (everyone is simultaneously "top 3" and "bottom 3"), which isn't
+// a meaningful result when there's nobody left to have actually beaten.
+// Below 5 players, nobody moves at all; scales up to the original flat-3
+// behaviour once a room reaches a normal size (rooms target 12-19
+// members — see assignRooms.js).
+function zoneSize(roomSize) {
+  return Math.min(3, Math.floor(roomSize * 0.2));
+}
+
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
@@ -100,8 +111,8 @@ async function main() {
         topTierCandidates.push({ ...scored[0], roomId: roomDoc.id });
       }
 
-      const promoteCount = tierAbove(tier) ? Math.min(3, scored.length) : 0;
-      const relegateCount = tierBelow(tier) ? Math.min(3, Math.max(0, scored.length - promoteCount)) : 0;
+      const promoteCount = tierAbove(tier) ? zoneSize(scored.length) : 0;
+      const relegateCount = tierBelow(tier) ? Math.min(zoneSize(scored.length), Math.max(0, scored.length - promoteCount)) : 0;
 
       const batch = db.batch();
       let prunedThisRoom = 0;

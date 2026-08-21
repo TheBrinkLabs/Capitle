@@ -19,12 +19,20 @@ class LeagueLeaderboard extends StatelessWidget {
     required this.isDark,
   });
 
+  // Mirrors rollover.js's zoneSize() exactly — the promotion/relegation
+  // zone shown here needs to match what the server will actually do, or
+  // a small room would show misleading highlighting (e.g. a flat 3 in a
+  // 3-member room implies the whole room is "at risk," when the scaled
+  // server-side rule would actually move nobody).
+  static int _zoneSize(int roomSize) => (roomSize * 0.2).floor().clamp(0, 3);
+
   @override
   Widget build(BuildContext context) {
     final canPromote = tier != kTopTier;
     final canRelegate = tier != 'bronze';
-    final promotionZone = canPromote ? 3 : 0;
-    final relegationZone = canRelegate ? 3 : 0;
+    final zone = _zoneSize(members.length);
+    final promotionZone = canPromote ? zone : 0;
+    final relegationZone = canRelegate ? zone : 0;
 
     return Column(
       children: [
