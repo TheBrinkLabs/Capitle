@@ -33,9 +33,20 @@ class AuthService {
     }
   }
 
+  // The web (client_type: 3) OAuth client from google-services.json —
+  // needed as serverClientId so the ID token GoogleSignIn returns is
+  // audienced correctly for Firebase's GoogleAuthProvider.credential() to
+  // accept. In principle google_sign_in_android can auto-discover this
+  // from google-services.json without it being passed explicitly, but
+  // the package's own README lists a missing/incorrect serverClientId as
+  // one of the top causes of sign-in silently failing — passing it
+  // explicitly removes that as a variable entirely.
+  static const _webClientId =
+      '429418557392-9cqu5orjg80t2dnpf7ouinmn8aj258k8.apps.googleusercontent.com';
+
   Future<void> _ensureGoogleInitialized() async {
     if (_googleInitialized) return;
-    await GoogleSignIn.instance.initialize();
+    await GoogleSignIn.instance.initialize(serverClientId: _webClientId);
     _googleInitialized = true;
   }
 

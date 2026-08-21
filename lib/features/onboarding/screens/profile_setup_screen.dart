@@ -71,15 +71,28 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     final finalProfile = ref.read(playerProfileProvider);
     final uid = ref.read(uidProvider);
     if (uid != null) {
+      final repo = ref.read(leagueRepositoryProvider);
+      final resolvedNickname = finalProfile.nickname ?? generateFallbackNickname();
       try {
-        await ref.read(leagueRepositoryProvider).ensurePlayerDocument(
-              uid: uid,
-              nickname: finalProfile.nickname ?? generateFallbackNickname(),
-              countryCode: finalProfile.countryCode,
-            );
+        // Creates the doc on first-ever setup; no-ops if it already
+        // exists. ensurePlayerDocument alone is NOT enough for an edit
+        // (standalone mode, reached from Settings/League) — it silently
+        // does nothing once the doc exists, which is why a nickname
+        // change here used to never actually reach Firestore. syncProfile
+        // is what actually applies the edit to an existing profile.
+        await repo.ensurePlayerDocument(
+          uid: uid,
+          nickname: resolvedNickname,
+          countryCode: finalProfile.countryCode,
+        );
+        await repo.syncProfile(
+          uid: uid,
+          nickname: resolvedNickname,
+          countryCode: finalProfile.countryCode,
+        );
       } catch (_) {
-        // Non-fatal — the player doc gets created lazily the next time
-        // this succeeds (e.g. next app open with connectivity).
+        // Non-fatal — the player doc gets created/synced lazily the next
+        // time this succeeds (e.g. next app open with connectivity).
       }
     }
 

@@ -211,7 +211,8 @@ class SettingsScreen extends ConsumerWidget {
                               const SnackBar(content: Text('Your progress is now backed up.')),
                             );
                           }
-                        } catch (e) {
+                        } catch (e, st) {
+                          debugPrint('Google sign-in link failed: $e\n$st');
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text("Couldn't sign in — try again in a bit.")),
