@@ -43,9 +43,24 @@ function tierBelow(tier) {
 // a meaningful result when there's nobody left to have actually beaten.
 // Below 5 players, nobody moves at all; scales up to the original flat-3
 // behaviour once a room reaches a normal size (rooms target 12-19
-// members — see assignRooms.js).
+// members — see assignRooms.js). Used for every tier's relegation, and
+// for Silver's own promotion into Gold (see bronzePromotionCount below
+// for why Bronze is different).
 function zoneSize(roomSize) {
   return Math.min(3, Math.floor(roomSize * 0.2));
+}
+
+// Bronze promotes a much bigger slice than zoneSize's usual 20%/cap-3 —
+// deliberately uncapped, so it scales up with Bronze's typically larger
+// rooms rather than topping out at 3 regardless of size. Bronze has
+// abundant, constantly-replenished supply (every new signup lands there
+// via the daily join, never directly in Silver/Gold), so sending more
+// players upward each week is what actually grows Silver/Gold toward a
+// full room over time — unlike Silver->Gold, which keeps the tighter
+// zoneSize rate since Gold is the top tier and shouldn't get diluted
+// just because Bronze happens to have surplus.
+function bronzePromotionCount(roomSize) {
+  return Math.floor(roomSize * 0.4);
 }
 
 async function main() {
@@ -111,7 +126,9 @@ async function main() {
         topTierCandidates.push({ ...scored[0], roomId: roomDoc.id });
       }
 
-      const promoteCount = tierAbove(tier) ? zoneSize(scored.length) : 0;
+      const promoteCount = !tierAbove(tier) ? 0
+        : tier === 'bronze' ? bronzePromotionCount(scored.length)
+        : zoneSize(scored.length);
       const relegateCount = tierBelow(tier) ? Math.min(zoneSize(scored.length), Math.max(0, scored.length - promoteCount)) : 0;
 
       const batch = db.batch();
