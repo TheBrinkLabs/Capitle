@@ -19,11 +19,20 @@ class LeagueLeaderboard extends StatelessWidget {
     required this.isDark,
   });
 
-  // Mirrors rollover.js's zoneSize()/bronzePromotionCount() exactly — the
-  // promotion/relegation zone shown here needs to match what the server
-  // will actually do, or the highlighting would mislead players about
-  // who's actually at risk or about to move up.
+  // Mirrors rollover.js's zoneSize() exactly for relegation and for
+  // Silver->Gold promotion — the highlighting needs to match what the
+  // server will actually do there, or it'd mislead players about who's
+  // actually at risk.
   static int _zoneSize(int roomSize) => (roomSize * 0.2).floor().clamp(0, 3);
+
+  // Bronze->Silver is the one exception: the server's real rate tapers
+  // between 40% and 20% based on Silver's CURRENT total population
+  // (bronzePromotionFraction in rollover.js), which isn't something this
+  // widget has visibility into without an extra Firestore query just for
+  // a highlighting preview. Shows the boosted 40% ceiling instead — an
+  // optimistic approximation, not an exact match; the real promotion
+  // count is always decided server-side regardless of what's highlighted
+  // here.
   static int _bronzePromotionCount(int roomSize) => (roomSize * 0.4).floor();
 
   @override

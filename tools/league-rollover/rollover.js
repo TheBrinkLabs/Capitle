@@ -59,8 +59,25 @@ function zoneSize(roomSize) {
 // full room over time — unlike Silver->Gold, which keeps the tighter
 // zoneSize rate since Gold is the top tier and shouldn't get diluted
 // just because Bronze happens to have surplus.
-function bronzePromotionCount(roomSize) {
-  return Math.floor(roomSize * 0.4);
+//
+// The rate itself isn't fixed at 40% — it tapers off as Silver actually
+// fills up, down to a floor equal to zoneSize's normal 20% (so Silver
+// still gets fed at the standard rate even once healthy, just not
+// artificially boosted forever once the "help it fill up" job is done).
+// Empty Silver -> boosted 40%; a full room's worth (TARGET_SIZE, see
+// assignRooms.js) or more -> back down to the normal 20%; linear
+// between.
+const BRONZE_BOOST_FRACTION = 0.4;
+const BRONZE_BASE_FRACTION = 0.2; // matches zoneSize's rate
+const SILVER_FULL_THRESHOLD = 15; // TARGET_SIZE from assignRooms.js
+
+function bronzePromotionFraction(currentSilverCount) {
+  const t = Math.min(1, currentSilverCount / SILVER_FULL_THRESHOLD);
+  return BRONZE_BOOST_FRACTION - (BRONZE_BOOST_FRACTION - BRONZE_BASE_FRACTION) * t;
+}
+
+function bronzePromotionCount(roomSize, currentSilverCount) {
+  return Math.floor(roomSize * bronzePromotionFraction(currentSilverCount));
 }
 
 async function main() {
@@ -91,6 +108,14 @@ async function main() {
     // ── 1. Score every room live during the week that just ended ───────
     const roomsSnap = await db.collection('leagueRooms').where('weekId', '==', justEndedWeekId).get();
     console.log(`Found ${roomsSnap.size} rooms for ${justEndedWeekId}`);
+
+    // Current Silver population, measured BEFORE this run moves anyone —
+    // this is what decides how aggressively Bronze promotes this week
+    // (see bronzePromotionFraction above).
+    const currentSilverCount = roomsSnap.docs
+      .filter((d) => d.data().tier === 'silver')
+      .reduce((sum, d) => sum + (d.data().memberUids || []).length, 0);
+    console.log(`Current Silver population: ${currentSilverCount} (Bronze promotion rate: ${(bronzePromotionFraction(currentSilverCount) * 100).toFixed(0)}%)`);
 
     /** @type {Record<string, {uid: string, tier: string}[]>} incoming pool per NEXT tier */
     const incomingPools = { bronze: [], silver: [], gold: [] };
@@ -127,7 +152,7 @@ async function main() {
       }
 
       const promoteCount = !tierAbove(tier) ? 0
-        : tier === 'bronze' ? bronzePromotionCount(scored.length)
+        : tier === 'bronze' ? bronzePromotionCount(scored.length, currentSilverCount)
         : zoneSize(scored.length);
       const relegateCount = tierBelow(tier) ? Math.min(zoneSize(scored.length), Math.max(0, scored.length - promoteCount)) : 0;
 
