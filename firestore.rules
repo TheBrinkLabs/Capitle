@@ -38,13 +38,27 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
 
       // Clients may only ever touch this allow-listed set of fields —
-      // tier/roomId/pendingJoin/createdAt are frozen from the client's
-      // point of view, changeable only by the rollover job's Admin SDK
-      // write, which bypasses rules.
+      // tier/roomId/createdAt are frozen from the client's point of view,
+      // changeable only by the rollover job's Admin SDK write, which
+      // bypasses rules. pendingJoin is the one exception: a client may
+      // flip it false -> true, but ONLY when the rollover job has
+      // already parked them (roomId null, pendingJoin already false —
+      // the state it sets when pruning an inactive player, see
+      // rollover.js). That's "I'm playing again, please re-queue me,"
+      // not a way to self-assign into a room or bypass tier placement.
       allow update: if isSignedInAs(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-             ['nickname', 'nicknameLower', 'countryCode', 'currentStreak', 'linkedGoogle', 'updatedAt'])
-        && request.resource.data.updatedAt == request.time;
+        && request.resource.data.updatedAt == request.time
+        && (
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+               ['nickname', 'nicknameLower', 'countryCode', 'currentStreak', 'linkedGoogle', 'updatedAt', 'lastActiveAt'])
+             || (
+                  resource.data.roomId == null
+                  && resource.data.pendingJoin == false
+                  && request.resource.data.pendingJoin == true
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+                       ['pendingJoin', 'updatedAt', 'lastActiveAt'])
+                )
+           );
 
       allow delete: if false;
 

@@ -10,6 +10,24 @@ const { assignRoomsForTier } = require('./assignRooms');
 const TIERS = ['bronze', 'silver', 'gold'];
 const MODES = ['guessCountry', 'guessCapital', 'guessFlag', 'guessNeighbours', 'guessPopulation', 'guessOutline'];
 
+// A player who hasn't submitted a single score in this long doesn't get
+// carried into a new room next week — this is what actually cleans up
+// reinstall "ghost" identities (an orphaned anonymous UID superseded by a
+// fresh one stops submitting scores forever the moment that happens) as
+// well as genuinely inactive players, without needing real uninstall
+// detection (which this app has no infrastructure for — see
+// lib/core/utils/aluna_availability_service.dart's sibling discussion).
+// Two weekly cycles' worth of grace — long enough that someone on a
+// short break isn't punished, short enough that ghosts don't linger.
+const INACTIVITY_DAYS = 14;
+
+function isInactive(playerData, now) {
+  const reference = playerData.lastActiveAt || playerData.createdAt;
+  if (!reference) return false; // defensive — shouldn't happen, never prune on missing data
+  const ageMs = now.getTime() - reference.toDate().getTime();
+  return ageMs > INACTIVITY_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function tierAbove(tier) {
   const i = TIERS.indexOf(tier);
   return i < TIERS.length - 1 ? TIERS[i + 1] : null;
@@ -70,13 +88,15 @@ async function main() {
         modesSnap.forEach((d) => { total += (d.data().score || 0); });
 
         const playerSnap = await db.collection('players').doc(uid).get();
-        const streak = playerSnap.exists ? (playerSnap.data().currentStreak || 0) : 0;
-        return { uid, score: total, streak };
+        const exists = playerSnap.exists;
+        const streak = exists ? (playerSnap.data().currentStreak || 0) : 0;
+        const inactive = exists && isInactive(playerSnap.data(), now);
+        return { uid, score: total, streak, exists, inactive };
       }));
 
       scored.sort((a, b) => (b.score - a.score) || (b.streak - a.streak));
 
-      if (!tierAbove(tier) && scored.length > 0) {
+      if (!tierAbove(tier) && scored.length > 0 && scored[0].exists && !scored[0].inactive) {
         topTierCandidates.push({ ...scored[0], roomId: roomDoc.id });
       }
 
@@ -84,7 +104,14 @@ async function main() {
       const relegateCount = tierBelow(tier) ? Math.min(3, Math.max(0, scored.length - promoteCount)) : 0;
 
       const batch = db.batch();
+      let prunedThisRoom = 0;
       scored.forEach((entry, i) => {
+        // A deleted player (e.g. a reinstall-ghost cleaned up manually
+        // mid-week) has nothing left to update — skip entirely rather
+        // than writing history for a doc that no longer exists or
+        // resurrecting them into next week's room pool.
+        if (!entry.exists) return;
+
         const isPromoted = i < promoteCount;
         const isRelegated = i >= scored.length - relegateCount;
         const outcome = isPromoted ? 'promoted' : isRelegated ? 'relegated' : 'stayed';
@@ -102,9 +129,28 @@ async function main() {
           outcome,
         });
 
-        incomingPools[nextTier].push(entry.uid);
+        if (entry.inactive) {
+          // Gone quiet for INACTIVITY_DAYS — don't carry them into a new
+          // room. Deliberately pendingJoin: false here, NOT true — both
+          // this script's own step 2 below and assignNewJoiners.js query
+          // on pendingJoin == true, so setting it true would just sweep
+          // them straight into a fresh room this same run, undoing the
+          // prune entirely. Left fully "parked" instead; the app itself
+          // flips pendingJoin back to true the next time they actually
+          // submit a score (see LeagueRepository.submitGameScore), which
+          // is the real "welcome back" signal, not just the calendar
+          // ticking over.
+          batch.set(db.collection('players').doc(entry.uid), {
+            tier: 'bronze', roomId: null, pendingJoin: false,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+          prunedThisRoom++;
+        } else {
+          incomingPools[nextTier].push(entry.uid);
+        }
         playersProcessed++;
       });
+      if (prunedThisRoom > 0) console.log(`${roomDoc.id}: pruned ${prunedThisRoom} inactive player(s)`);
       await batch.commit();
     }
 

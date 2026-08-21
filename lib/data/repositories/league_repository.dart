@@ -107,5 +107,34 @@ class LeagueRepository {
       'weekId': weekId,
       'submittedAt': FieldValue.serverTimestamp(),
     });
+
+    // Distinct from 'updatedAt' (which the weekly rollover script also
+    // touches on every player it reassigns, win or lose, active or not —
+    // so it can't be trusted as a genuine "last played" signal). This is
+    // ONLY written when a real score is actually submitted, which is what
+    // rollover.js's inactivity pruning depends on to tell a real player
+    // on a break from an abandoned reinstall-ghost that will never play
+    // again.
+    final playerRef = _players.doc(uid);
+    await playerRef.set({
+      'lastActiveAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // A player pruned for inactivity (see rollover.js) is left "parked" —
+    // roomId: null, pendingJoin: false — deliberately NOT re-queued
+    // automatically, so the calendar ticking over doesn't undo the prune.
+    // Actually playing again (this call) is the real "welcome back"
+    // signal, so re-queue them for the next room-assignment sweep here.
+    // (firestore.rules only allows this specific false->true flip when
+    // the player is already in that exact parked state.)
+    final snap = await playerRef.get();
+    final data = snap.data();
+    if (data != null && data['roomId'] == null && data['pendingJoin'] != true) {
+      await playerRef.set({
+        'pendingJoin': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 }
