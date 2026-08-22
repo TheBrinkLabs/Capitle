@@ -2,9 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/utils/ad_service.dart';
-import '../../../core/utils/meta_banner_ad.dart';
 import '../../../core/utils/aluna_availability_service.dart';
 
 enum _BannerState { loading, loaded, failed }
@@ -109,7 +109,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void initState() {
     super.initState();
-    // If Meta never calls back at all (success or failure) within
+    // If Unity never calls back at all (success or failure) within
     // this window, treat it the same as an explicit failure.
     _timeoutTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && _state == _BannerState.loading) {
@@ -126,7 +126,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (!adService.isMetaInitialized) return const SizedBox.shrink();
+    if (!adService.isUnityInitialized) return const SizedBox.shrink();
 
     return SafeArea(
       top: widget.atTop,
@@ -135,27 +135,28 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
         width: double.infinity,
         height: 50, // standard banner height
         child: Stack(
+          alignment: Alignment.center,
           children: [
             // Real ad — kept mounted even after falling back, so if it
-            // loads late (e.g. Meta recovers, or a retry succeeds) it
+            // loads late (e.g. Unity recovers, or a retry succeeds) it
             // can still swap back in automatically.
             Offstage(
               offstage: _state == _BannerState.failed,
-              child: MetaBannerAd(
-                placementId: adService.metaBannerPlacementId,
-                onLoad: () {
+              child: UnityBannerAd(
+                placementId: adService.unityBannerPlacementId,
+                onLoad: (placementId) {
                   _timeoutTimer?.cancel();
                   if (mounted) setState(() => _state = _BannerState.loaded);
                 },
-                onFailed: (errorCode, errorMessage) {
-                  debugPrint('BannerAd failed to load: $errorCode $errorMessage');
+                onFailed: (placementId, error, message) {
+                  debugPrint('BannerAd failed to load: $error $message');
                   _timeoutTimer?.cancel();
                   if (mounted) setState(() => _state = _BannerState.failed);
                 },
               ),
             ),
             // Also kept permanently mounted rather than built/torn down
-            // conditionally — Meta's SDK can flicker between loaded and
+            // conditionally — the SDK can flicker between loaded and
             // failed (e.g. a brief fill followed by a refresh miss), and
             // conditionally removing this from the tree would destroy its
             // State every time, restarting the whole Higgins/Aluna cycle

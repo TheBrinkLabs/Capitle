@@ -11,16 +11,16 @@ import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 /// in the Unity dashboard so far, shared between the two.
 enum RewardedAdSlot { clue, streakRepair }
 
-/// Unity handles rewarded ads only — its interstitial and banner formats
-/// were dropped (interstitial felt indistinguishable from a rewarded ad
-/// with no reliable way to keep it short; its Flutter banner plugin has
-/// a longstanding unresolved no-fill bug). Banner and the clue-reveal
-/// placement now go through Meta Audience Network instead, via a native
-/// platform channel (see meta_banner_ad.dart) since Meta has no
-/// actively-maintained standalone Flutter plugin.
+/// Unity handles rewarded ads and the main banner. Its interstitial
+/// format was dropped (felt indistinguishable from a rewarded ad with no
+/// reliable way to keep it short) — that one still goes nowhere. The MREC
+/// clue-reveal placement stays on Meta Audience Network (see
+/// meta_banner_ad.dart), which has no standalone Flutter plugin at all so
+/// it's wired up via a native platform channel instead.
 class AdService {
   static const _unityGameId = '800112186';
   static const _rewardedPlacementId = 'Rewarded_Android';
+  static const _bannerPlacementId = 'Banner_Android';
 
   // Meta Audience Network — App ID 27937713359198663.
   static const _metaBannerPlacementId = '27937713359198663_27937721435864522';
@@ -28,10 +28,11 @@ class AdService {
 
   static const _metaAdsInitChannel = MethodChannel('meta_ads_init');
 
-  // TODO: flip to false before shipping a real release — testMode serves
-  // Unity's test ad creatives instead of live ones, so no real ads (or
-  // real revenue) show while this is true.
-  static const _testMode = true;
+  // Was hardcoded true, which meant Unity was serving test ad creatives
+  // in every build, release included — no real Unity revenue was ever
+  // possible while that stood. kDebugMode ties it to the actual build
+  // type instead: real ads in release, test creatives while developing.
+  static const bool _testMode = kDebugMode;
 
   bool _isUnityInitialized = false;
   bool _isMetaInitialized = false;
@@ -69,19 +70,21 @@ class AdService {
     }
   }
 
-  // ── Banner (Meta) ────────────────────────────────────────────────────
+  // ── MREC (Meta) ──────────────────────────────────────────────────────
 
   String get metaBannerPlacementId => _metaBannerPlacementId;
   String get metaMrecPlacementId => _metaMrecPlacementId;
   bool get isMetaInitialized => _isMetaInitialized;
 
-  // ── Rewarded (Unity) ─────────────────────────────────────────────────
+  // ── Banner + Rewarded (Unity) ────────────────────────────────────────
   //
-  // Both slots share _rewardedPlacementId, so ready/loading state is
-  // tracked once rather than per-slot — there's only one underlying ad
-  // to be ready or not. `slot` is still accepted on every method below
-  // purely so call sites keep expressing which feature is asking.
+  // Rewarded's two slots share _rewardedPlacementId, so ready/loading
+  // state is tracked once rather than per-slot — there's only one
+  // underlying ad to be ready or not. `slot` is still accepted on every
+  // method below purely so call sites keep expressing which feature is
+  // asking.
 
+  String get unityBannerPlacementId => _bannerPlacementId;
   bool get isUnityInitialized => _isUnityInitialized;
 
   bool isRewardedAdReady(RewardedAdSlot slot) => _rewardedReady;
