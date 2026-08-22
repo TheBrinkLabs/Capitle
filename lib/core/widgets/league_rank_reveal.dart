@@ -53,13 +53,41 @@ class _LeagueRankRevealState extends State<LeagueRankReveal> {
   }
 }
 
-class _LeagueRankRevealContent extends ConsumerWidget {
+class _LeagueRankRevealContent extends ConsumerStatefulWidget {
   final int todayScore;
   final bool isDark;
   const _LeagueRankRevealContent({required this.todayScore, required this.isDark});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_LeagueRankRevealContent> createState() => _LeagueRankRevealContentState();
+}
+
+class _LeagueRankRevealContentState extends ConsumerState<_LeagueRankRevealContent> {
+  // The 900ms head start before the first fetch is usually enough, but
+  // isn't guaranteed — this is the real backstop. A fetched weekly total
+  // that's LESS than today's score alone is a hard proof of staleness
+  // (your weekly total can never be less than what you just scored
+  // today), not a guess — so retry instead of quietly animating a "no
+  // change" reveal off stale data, which is exactly what a fixed delay
+  // alone can't rule out.
+  static const _maxRetries = 5;
+  static const _retryDelay = Duration(milliseconds: 700);
+  int _retriesLeft = _maxRetries;
+  bool _retryScheduled = false;
+
+  void _scheduleRetryIfStale(String roomId) {
+    if (_retryScheduled || _retriesLeft <= 0) return;
+    _retryScheduled = true;
+    _retriesLeft--;
+    Future.delayed(_retryDelay, () {
+      if (!mounted) return;
+      _retryScheduled = false;
+      ref.invalidate(leagueRoomMembersProvider(roomId));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final data = ref.watch(playerDocProvider).valueOrNull?.data();
     final roomId = data?['roomId'] as String?;
     final pendingJoin = data?['pendingJoin'] as bool? ?? true;
@@ -68,9 +96,9 @@ class _LeagueRankRevealContent extends ConsumerWidget {
     if (uid == null || roomId == null || pendingJoin) {
       // Not in the league yet (or profile still mid-setup) — league
       // participation is optional, so a light nudge, not an error state.
-      final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
+      final textMuted = widget.isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
       return MatteCard(
-        isDark: isDark,
+        isDark: widget.isDark,
         borderRadius: 18,
         padding: const EdgeInsets.all(18),
         child: Column(children: [
@@ -93,7 +121,21 @@ class _LeagueRankRevealContent extends ConsumerWidget {
       data: (members) {
         final hasMe = members.any((m) => m.uid == uid);
         if (!hasMe) return const SizedBox.shrink();
-        return _RankRevealAnimation(members: members, myUid: uid, todayScore: todayScore, isDark: isDark);
+
+        final mine = members.firstWhere((m) => m.uid == uid);
+        final isStale = mine.score < widget.todayScore;
+        if (isStale && _retriesLeft > 0) {
+          _scheduleRetryIfStale(roomId);
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 30),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        // Retries exhausted and still stale — proceed anyway rather than
+        // spinning forever. _RankRevealAnimation clamps defensively for
+        // exactly this case (an under-animated reveal beats a stuck one).
+
+        return _RankRevealAnimation(members: members, myUid: uid, todayScore: widget.todayScore, isDark: widget.isDark);
       },
     );
   }
@@ -118,9 +160,20 @@ class _RankRevealAnimation extends StatefulWidget {
 class _RankRevealAnimationState extends State<_RankRevealAnimation> with SingleTickerProviderStateMixin {
   static const _rowHeight = 52.0;
   static const _rowSpacing = 8.0;
-  static const _preAnimateDelay = Duration(milliseconds: 600);
+  static const _preAnimateDelay = Duration(milliseconds: 700);
 
+  // One continuous timeline, but sequenced into two distinct beats rather
+  // than both happening at once: the score counts up FIRST while
+  // everyone stays put (so the new total actually registers), THEN the
+  // rows slide to their new positions once that's landed. A short gap
+  // between the two phases (0.42-0.5) reads as a deliberate pause, not
+  // just a slow crossfade — that's what makes it feel choreographed
+  // rather than everything happening in a blur simultaneously.
+  static const _totalDuration = Duration(milliseconds: 1900);
   late final AnimationController _controller;
+  late final Animation<double> _scoreT;
+  late final Animation<double> _positionT;
+
   late final List<LeagueMemberEntry> _afterOrder;
   late final Map<String, int> _beforeRank;
   late final Map<String, int> _afterRank;
@@ -151,7 +204,10 @@ class _RankRevealAnimationState extends State<_RankRevealAnimation> with SingleT
     _beforeRank = {for (var i = 0; i < beforeOrder.length; i++) beforeOrder[i].uid: i};
     _afterRank = {for (var i = 0; i < _afterOrder.length; i++) _afterOrder[i].uid: i};
 
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
+    _controller = AnimationController(vsync: this, duration: _totalDuration);
+    _scoreT = CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.42, curve: Curves.easeOut));
+    _positionT = CurvedAnimation(parent: _controller, curve: const Interval(0.5, 1.0, curve: Curves.easeInOutCubic));
+
     // Let the player register their starting position before anything
     // starts moving, rather than animating immediately on mount.
     Future.delayed(_preAnimateDelay, () {
@@ -175,31 +231,35 @@ class _RankRevealAnimationState extends State<_RankRevealAnimation> with SingleT
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
-          final t = Curves.easeInOutCubic.transform(_controller.value);
           return Stack(
             clipBehavior: Clip.none,
-            children: [for (final member in widget.members) _buildRow(member, t)],
+            children: [for (final member in widget.members) _buildRow(member, _scoreT.value, _positionT.value)],
           );
         },
       ),
     );
   }
 
-  Widget _buildRow(LeagueMemberEntry member, double t) {
+  Widget _buildRow(LeagueMemberEntry member, double scoreT, double positionT) {
     final before = _beforeRank[member.uid] ?? 0;
     final after = _afterRank[member.uid] ?? 0;
-    final y = before + (after - before) * t;
+    final y = before + (after - before) * positionT;
     final isMe = member.uid == widget.myUid;
     final displayScore = isMe
-        ? (_myScoreBefore + (_myScoreAfter - _myScoreBefore) * t).round()
+        ? (_myScoreBefore + (_myScoreAfter - _myScoreBefore) * scoreT).round()
         : member.score;
+    // Rank number snaps to its new value at the midpoint of the slide,
+    // not the very start or end — updating exactly when the row is
+    // passing through, rather than a jump right before or an abrupt pop
+    // right after it's already settled.
+    final displayRank = (positionT >= 0.5 ? after : before) + 1;
 
     return Positioned(
       top: y * (_rowHeight + _rowSpacing),
       left: 0,
       right: 0,
       child: _RevealRow(
-        rank: after + 1,
+        rank: displayRank,
         member: member,
         displayScore: displayScore,
         isMe: isMe,
