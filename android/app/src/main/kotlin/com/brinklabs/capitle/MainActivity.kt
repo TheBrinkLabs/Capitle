@@ -18,7 +18,7 @@ class MainActivity : FlutterActivity() {
     // device's hash in logcat: "AdInternalSettings: Test mode device
     // hash: <hash>" — printed the first time that device loads any ad.
     private val metaTestDeviceHashes = listOf(
-        "1157eb22-5e5c-4c64-9474-d9ccb3b7c497", // Pixel 8 Pro (dev)
+        "28c39733-c4fa-41f1-b9d5-a9e80daacd45", // Pixel 8 Pro (dev) — hash changed since original registration
     )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
