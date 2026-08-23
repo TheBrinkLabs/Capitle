@@ -5,7 +5,20 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/utils/ad_service.dart';
+import '../../../core/utils/meta_banner_ad.dart';
 import '../../../core/utils/aluna_availability_service.dart';
+
+// Real ad networks tried in order for the banner slot, before falling
+// back to the house banner — Unity first (it's the one with actual
+// gaming-category demand for a small new publisher right now), Meta
+// second (currently near-zero fill of its own, see the fill-rate
+// investigation, but a real independent demand source that costs
+// nothing to keep trying). A third provider (e.g. Vungle/Liftoff) slots
+// in here later the same way, once it's actually integrated — nothing
+// else about this waterfall needs to change to add one.
+enum _AdProvider { unity, meta }
+
+const _adProviders = [_AdProvider.unity, _AdProvider.meta];
 
 enum _BannerState { loading, loaded, failed }
 
@@ -103,30 +116,114 @@ class BannerAdWidget extends StatefulWidget {
 }
 
 class _BannerAdWidgetState extends State<BannerAdWidget> {
+  // Once every real provider in the waterfall has failed, wait this long
+  // before trying the whole thing again from the top. Ad auctions
+  // refresh, so a request that fails now can easily succeed a bit later
+  // — but ad networks generally advise against refreshing much faster
+  // than this: it doesn't meaningfully improve fill odds (inventory
+  // doesn't turn over that quickly either) and can start to look like
+  // abusive traffic.
+  static const _retryInterval = Duration(seconds: 20);
+  static const _providerTimeout = Duration(seconds: 8);
+
   _BannerState _state = _BannerState.loading;
+  int _providerIndex = 0;
   Timer? _timeoutTimer;
+  Timer? _retryTimer;
+  // Bumped on every attempt so the provider widget gets a new Key —
+  // that's what actually forces its underlying native platform view to
+  // be torn down and recreated, which is what triggers a fresh load
+  // attempt (each widget only ever loads once per Key, on creation).
+  int _loadAttempt = 0;
+
+  _AdProvider get _currentProvider => _adProviders[_providerIndex];
 
   @override
   void initState() {
     super.initState();
-    // If Unity never calls back at all (success or failure) within
+    _startProviderTimeout();
+  }
+
+  void _startProviderTimeout() {
+    _timeoutTimer?.cancel();
+    // If a provider never calls back at all (success or failure) within
     // this window, treat it the same as an explicit failure.
-    _timeoutTimer = Timer(const Duration(seconds: 8), () {
-      if (mounted && _state == _BannerState.loading) {
-        setState(() => _state = _BannerState.failed);
-      }
+    _timeoutTimer = Timer(_providerTimeout, () {
+      if (mounted && _state == _BannerState.loading) _onProviderFailed();
+    });
+  }
+
+  void _onProviderLoaded() {
+    _timeoutTimer?.cancel();
+    _retryTimer?.cancel();
+    if (mounted) setState(() => _state = _BannerState.loaded);
+  }
+
+  void _onProviderFailed() {
+    if (!mounted) return;
+    if (_providerIndex < _adProviders.length - 1) {
+      // Next provider in the waterfall, immediately — no reason to wait
+      // once we already know this one has nothing.
+      setState(() {
+        _providerIndex++;
+        _loadAttempt++;
+        _state = _BannerState.loading;
+      });
+      _startProviderTimeout();
+      return;
+    }
+    // Every provider struck out — fall back to the house banner, and
+    // retry the whole waterfall from the top after a cooldown.
+    setState(() => _state = _BannerState.failed);
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_retryInterval, () {
+      if (!mounted) return;
+      setState(() {
+        _providerIndex = 0;
+        _loadAttempt++;
+        _state = _BannerState.loading;
+      });
+      _startProviderTimeout();
     });
   }
 
   @override
   void dispose() {
     _timeoutTimer?.cancel();
+    _retryTimer?.cancel();
     super.dispose();
+  }
+
+  Widget _buildProviderAd() {
+    switch (_currentProvider) {
+      case _AdProvider.unity:
+        return UnityBannerAd(
+          key: ValueKey('unity_$_loadAttempt'),
+          placementId: adService.unityBannerPlacementId,
+          onLoad: (placementId) => _onProviderLoaded(),
+          onFailed: (placementId, error, message) {
+            debugPrint('Unity banner failed to load: $error $message');
+            _onProviderFailed();
+          },
+        );
+      case _AdProvider.meta:
+        return MetaBannerAd(
+          key: ValueKey('meta_$_loadAttempt'),
+          placementId: adService.metaBannerPlacementId,
+          onLoad: () => _onProviderLoaded(),
+          onFailed: (errorCode, errorMessage) {
+            debugPrint('Meta banner failed to load: $errorCode $errorMessage');
+            _onProviderFailed();
+          },
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!adService.isUnityInitialized) return const SizedBox.shrink();
+    if (!adService.isUnityInitialized && !adService.isMetaInitialized) {
+      return const SizedBox.shrink();
+    }
 
     return SafeArea(
       top: widget.atTop,
@@ -137,26 +234,17 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Real ad — kept mounted even after falling back, so if it
-            // loads late (e.g. Unity recovers, or a retry succeeds) it
-            // can still swap back in automatically.
+            // Real ad — kept mounted even after falling back (just
+            // offstage, and periodically retried via the key bump above),
+            // so a later successful load — whether from a retry here or
+            // the provider's own auto-refresh — can still swap back in
+            // automatically without losing the house banner's own state.
             Offstage(
               offstage: _state == _BannerState.failed,
-              child: UnityBannerAd(
-                placementId: adService.unityBannerPlacementId,
-                onLoad: (placementId) {
-                  _timeoutTimer?.cancel();
-                  if (mounted) setState(() => _state = _BannerState.loaded);
-                },
-                onFailed: (placementId, error, message) {
-                  debugPrint('BannerAd failed to load: $error $message');
-                  _timeoutTimer?.cancel();
-                  if (mounted) setState(() => _state = _BannerState.failed);
-                },
-              ),
+              child: _buildProviderAd(),
             ),
             // Also kept permanently mounted rather than built/torn down
-            // conditionally — the SDK can flicker between loaded and
+            // conditionally — providers can flicker between loaded and
             // failed (e.g. a brief fill followed by a refresh miss), and
             // conditionally removing this from the tree would destroy its
             // State every time, restarting the whole Higgins/Aluna cycle
