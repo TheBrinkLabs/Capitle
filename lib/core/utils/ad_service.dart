@@ -11,12 +11,13 @@ import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 /// in the Unity dashboard so far, shared between the two.
 enum RewardedAdSlot { clue, streakRepair }
 
-/// Unity handles rewarded ads and the main banner. Its interstitial
-/// format was dropped (felt indistinguishable from a rewarded ad with no
-/// reliable way to keep it short) — that one still goes nowhere. The MREC
-/// clue-reveal placement stays on Meta Audience Network (see
-/// meta_banner_ad.dart), which has no standalone Flutter plugin at all so
-/// it's wired up via a native platform channel instead.
+/// Unity handles rewarded ads (clue reveal + streak repair) and is the
+/// primary banner provider. Its interstitial format was dropped (felt
+/// indistinguishable from a rewarded ad with no reliable way to keep it
+/// short) — that one still goes nowhere. Meta Audience Network (see
+/// meta_banner_ad.dart, wired up via a native platform channel since it
+/// has no standalone Flutter plugin) is the banner's second provider in
+/// the waterfall — see banner_ad_widget.dart.
 class AdService {
   static const _unityGameId = '800112186';
   static const _rewardedPlacementId = 'Rewarded_Android';
@@ -24,7 +25,6 @@ class AdService {
 
   // Meta Audience Network — App ID 27937713359198663.
   static const _metaBannerPlacementId = '27937713359198663_27937721435864522';
-  static const _metaMrecPlacementId = '27937713359198663_27937721432531189';
 
   static const _metaAdsInitChannel = MethodChannel('meta_ads_init');
 
@@ -70,10 +70,9 @@ class AdService {
     }
   }
 
-  // ── MREC (Meta) ──────────────────────────────────────────────────────
+  // ── Banner, second provider (Meta) ──────────────────────────────────
 
   String get metaBannerPlacementId => _metaBannerPlacementId;
-  String get metaMrecPlacementId => _metaMrecPlacementId;
   bool get isMetaInitialized => _isMetaInitialized;
 
   // ── Banner + Rewarded (Unity) ────────────────────────────────────────

@@ -10,7 +10,7 @@ import '../../../core/widgets/app_effects.dart';
 import '../../../core/widgets/app_transitions.dart';
 import '../providers/game_provider.dart';
 import 'result_screen.dart';
-import '../../../core/widgets/clue_ad_screen.dart';
+import '../../../core/widgets/clue_rewarded_ad.dart';
 import '../../../core/utils/banner_position_route.dart';
 import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
 
@@ -130,8 +130,8 @@ class _GameScreenState extends ConsumerState<GameScreen>
     }
 
     Future<void> watchAdForClue() async {
-      await showClueAdScreen(context);
-      if (!mounted) return;
+      final earned = await showClueRewardedAd(context);
+      if (!mounted || !earned) return;
       ref.read(_provider.notifier).useClueViaAd();
       afterReveal();
     }

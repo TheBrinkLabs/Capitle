@@ -10,7 +10,7 @@ import '../../../features/settings/providers/settings_provider.dart';
 import '../../../data/models/outline_assets.dart';
 import '../../home/widgets/banner_ad_widget.dart' show BannerPosition;
 import '../../../core/utils/banner_position_route.dart';
-import '../../../core/widgets/clue_ad_screen.dart';
+import '../../../core/widgets/clue_rewarded_ad.dart';
 import '../../../core/widgets/location_reveal_map.dart';
 import '../../../core/widgets/practice_record_celebration.dart';
 import '../../../core/utils/providers.dart';
@@ -438,8 +438,8 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
     }
 
     Future<void> watchAdForClue() async {
-      await showClueAdScreen(context);
-      if (!mounted) return;
+      final earned = await showClueRewardedAd(context);
+      if (!mounted || !earned) return;
       ref.read(_provider.notifier).useClueViaAd();
       afterReveal();
     }
