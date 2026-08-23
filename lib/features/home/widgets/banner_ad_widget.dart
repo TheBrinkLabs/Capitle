@@ -6,6 +6,7 @@ import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/utils/ad_service.dart';
 import '../../../core/utils/meta_banner_ad.dart';
+import '../../../core/utils/vungle_banner_ad.dart';
 import '../../../core/utils/aluna_availability_service.dart';
 
 // Real ad networks tried in order for the banner slot, before falling
@@ -13,12 +14,11 @@ import '../../../core/utils/aluna_availability_service.dart';
 // gaming-category demand for a small new publisher right now), Meta
 // second (currently near-zero fill of its own, see the fill-rate
 // investigation, but a real independent demand source that costs
-// nothing to keep trying). A third provider (e.g. Vungle/Liftoff) slots
-// in here later the same way, once it's actually integrated — nothing
-// else about this waterfall needs to change to add one.
-enum _AdProvider { unity, meta }
+// nothing to keep trying), Vungle third (freshly integrated — its own
+// fill rate here isn't established yet).
+enum _AdProvider { unity, meta, vungle }
 
-const _adProviders = [_AdProvider.unity, _AdProvider.meta];
+const _adProviders = [_AdProvider.unity, _AdProvider.meta, _AdProvider.vungle];
 
 enum _BannerState { loading, loaded, failed }
 
@@ -216,12 +216,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
             _onProviderFailed();
           },
         );
+      case _AdProvider.vungle:
+        return VungleBannerAd(
+          key: ValueKey('vungle_$_loadAttempt'),
+          placementId: adService.vungleBannerPlacementId,
+          onLoad: () => _onProviderLoaded(),
+          onFailed: (errorCode, errorMessage) {
+            debugPrint('Vungle banner failed to load: $errorCode $errorMessage');
+            _onProviderFailed();
+          },
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!adService.isUnityInitialized && !adService.isMetaInitialized) {
+    if (!adService.isUnityInitialized && !adService.isMetaInitialized && !adService.isVungleInitialized) {
       return const SizedBox.shrink();
     }
 

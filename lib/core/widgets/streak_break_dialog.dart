@@ -81,19 +81,21 @@ class _StreakBreakDialogState extends State<_StreakBreakDialog> with SingleTicke
     super.dispose();
   }
 
+  // Trialling Vungle's interstitial here in place of Unity's rewarded
+  // video, to see how it performs for this slot. Unlike rewarded, an
+  // interstitial has no "watched to completion" signal of its own — the
+  // streak saves as soon as the ad is dismissed, full stop. That's a
+  // slightly weaker commitment than rewarded's guarantee, which is the
+  // actual trade-off being tested here alongside fill/revenue.
   void _watchAd() {
     if (_watching || _resolved) return;
     setState(() => _watching = true);
 
-    adService.showRewardedAd(
-      RewardedAdSlot.streakRepair,
-      onReward: () async {
+    adService.showVungleInterstitial(
+      onDismissed: () async {
         await widget.onWatchAd();
         _resolved = true;
         if (mounted) Navigator.of(context).pop();
-      },
-      onDismissedWithoutReward: () {
-        if (mounted) setState(() => _watching = false);
       },
       onNotReady: () {
         if (mounted) {

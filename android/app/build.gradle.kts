@@ -82,6 +82,10 @@ dependencies {
     // AdMob-mediation adapter, which would pull in Google Mobile Ads as
     // a dependency). This is the standalone SDK.
     implementation("com.facebook.android:audience-network-sdk:6.22.0")
+
+    // Vungle (Liftoff Monetize) — same rationale as Meta above: the
+    // direct standalone SDK, not an AdMob-mediation adapter.
+    implementation("com.vungle:vungle-ads:7.7.7")
 }
 
 flutter {

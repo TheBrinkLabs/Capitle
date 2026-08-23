@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import '../theme/app_theme.dart';
 import '../utils/ad_service.dart';
+import '../utils/vungle_banner_ad.dart';
 
 /// A "watch an ad for a clue" screen modelled on Wordle's own — an ad
 /// embedded directly in a page WE control, with our own always-visible
@@ -10,10 +11,13 @@ import '../utils/ad_service.dart';
 /// interstitial or rewarded ad. A rewarded video's watch length/skip
 /// behaviour is controlled by the SDK and the ad creative being served,
 /// not by us — there's no way to guarantee a short, predictable unlock
-/// time with one. Embedding a fixed-size banner in our own screen keeps
-/// that fully in our control instead: Unity's banner (the one format
-/// that's actually been reliable through this app's testing) plus a
-/// short minimum watch timer we own.
+/// time with one. Embedding a fixed-size ad in our own screen keeps that
+/// fully in our control instead: Vungle's MREC first (a bigger, higher-
+/// value format than a plain banner — worth more per view than what's
+/// already showing persistently elsewhere on screen), falling back to
+/// Unity's banner (the one format that's been reliably filling through
+/// this app's testing) if Vungle doesn't fill, plus a short minimum
+/// watch timer we own throughout.
 Future<void> showClueAdScreen(BuildContext context) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute(
@@ -22,6 +26,8 @@ Future<void> showClueAdScreen(BuildContext context) {
     ),
   );
 }
+
+enum _ClueAdProvider { vungleMrec, unityBanner }
 
 class _ClueAdScreen extends StatefulWidget {
   const _ClueAdScreen();
@@ -32,30 +38,27 @@ class _ClueAdScreen extends StatefulWidget {
 
 class _ClueAdScreenState extends State<_ClueAdScreen> {
   // Minimum time the ad must be visible before "Get Clue" is tappable —
-  // banner ads have no SDK-level "reward earned" signal the way a
+  // display ads have no SDK-level "reward earned" signal the way a
   // rewarded video does, so this is a product-level stand-in: give the
   // ad a real chance to actually be seen rather than letting the button
   // be tapped the instant the screen opens.
   static const _minWatchSeconds = 7;
+  static const _providerTimeout = Duration(seconds: 6);
+  static const _providers = [_ClueAdProvider.vungleMrec, _ClueAdProvider.unityBanner];
 
   bool _adFailed = false;
   bool _canContinue = false;
+  int _providerIndex = 0;
   int _secondsRemaining = _minWatchSeconds;
   Timer? _countdownTimer;
   Timer? _loadTimeoutTimer;
 
+  _ClueAdProvider get _currentProvider => _providers[_providerIndex];
+
   @override
   void initState() {
     super.initState();
-    // If the ad never calls back at all (success or failure) within
-    // this window, don't leave the user stuck waiting on nothing —
-    // treat it the same as a failed load.
-    _loadTimeoutTimer = Timer(const Duration(seconds: 8), () {
-      if (mounted && !_adFailed && _countdownTimer == null) {
-        setState(() => _adFailed = true);
-        _allowContinueImmediately();
-      }
-    });
+    _startProviderTimeout();
   }
 
   @override
@@ -63,6 +66,25 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
     _countdownTimer?.cancel();
     _loadTimeoutTimer?.cancel();
     super.dispose();
+  }
+
+  void _startProviderTimeout() {
+    _loadTimeoutTimer?.cancel();
+    // If the ad never calls back at all (success or failure) within
+    // this window, don't leave the user stuck waiting on nothing —
+    // treat it the same as a failed load.
+    _loadTimeoutTimer = Timer(_providerTimeout, _onProviderFailed);
+  }
+
+  void _onProviderFailed() {
+    if (!mounted || _countdownTimer != null) return;
+    if (_providerIndex < _providers.length - 1) {
+      setState(() => _providerIndex++);
+      _startProviderTimeout();
+      return;
+    }
+    setState(() => _adFailed = true);
+    _allowContinueImmediately();
   }
 
   void _allowContinueImmediately() {
@@ -88,6 +110,32 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
         setState(() => _secondsRemaining--);
       }
     });
+  }
+
+  Widget _buildProviderAd() {
+    switch (_currentProvider) {
+      case _ClueAdProvider.vungleMrec:
+        return VungleBannerAd(
+          key: const ValueKey('vungle_mrec'),
+          placementId: adService.vungleMrecPlacementId,
+          size: VungleBannerSize.mrec,
+          onLoad: _startCountdown,
+          onFailed: (errorCode, errorMessage) {
+            debugPrint('Clue ad (Vungle MREC) failed to load: $errorCode $errorMessage');
+            _onProviderFailed();
+          },
+        );
+      case _ClueAdProvider.unityBanner:
+        return UnityBannerAd(
+          key: const ValueKey('unity_banner'),
+          placementId: adService.unityBannerPlacementId,
+          onLoad: (placementId) => _startCountdown(),
+          onFailed: (placementId, error, message) {
+            debugPrint('Clue ad (Unity banner) failed to load: $error $message');
+            _onProviderFailed();
+          },
+        );
+    }
   }
 
   @override
@@ -116,23 +164,13 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
               child: Center(
                 child: _adFailed
                     ? Container(
-                        width: 320, height: 50,
+                        width: 300, height: 250,
                         decoration: BoxDecoration(
                           color: surface2,
                           borderRadius: BorderRadius.circular(12),
                         ),
                       )
-                    : UnityBannerAd(
-                        placementId: adService.unityBannerPlacementId,
-                        onLoad: (placementId) => _startCountdown(),
-                        onFailed: (placementId, error, message) {
-                          debugPrint('Clue ad failed to load: $error $message');
-                          if (mounted) {
-                            setState(() => _adFailed = true);
-                            _allowContinueImmediately();
-                          }
-                        },
-                      ),
+                    : _buildProviderAd(),
               ),
             ),
             Padding(
