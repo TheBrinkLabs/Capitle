@@ -2,22 +2,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 
-/// Two rewarded ad "slots" the app asks for by purpose:
-/// - clue: fast/short — this can be tapped often in a normal day.
-/// - streakRepair: fires at most once a day.
-///
-/// Both currently point at the SAME Unity placement (see
-/// _rewardedPlacementId) — there's only one rewarded placement configured
-/// in the Unity dashboard so far, shared between the two.
-enum RewardedAdSlot { clue, streakRepair }
+/// Rewarded ad "slot" — currently just streak repair (fires at most once
+/// a day). The clue-reveal ad uses an embedded banner instead (see
+/// clue_ad_screen.dart) rather than a rewarded video, specifically
+/// because a rewarded ad's watch length/skip behaviour is controlled by
+/// the SDK and the ad creative, not by us — clue needed a short,
+/// predictable unlock time a rewarded video can't guarantee.
+enum RewardedAdSlot { streakRepair }
 
-/// Unity handles rewarded ads (clue reveal + streak repair) and is the
-/// primary banner provider. Its interstitial format was dropped (felt
-/// indistinguishable from a rewarded ad with no reliable way to keep it
-/// short) — that one still goes nowhere. Meta Audience Network (see
-/// meta_banner_ad.dart, wired up via a native platform channel since it
-/// has no standalone Flutter plugin) is the banner's second provider in
-/// the waterfall — see banner_ad_widget.dart.
+/// Unity handles rewarded ads (streak repair) and is the primary banner
+/// provider (both the persistent nav banner and the clue-reveal embed).
+/// Its interstitial format was dropped (felt indistinguishable from a
+/// rewarded ad with no reliable way to keep it short) — that one still
+/// goes nowhere. Meta Audience Network (see meta_banner_ad.dart, wired up
+/// via a native platform channel since it has no standalone Flutter
+/// plugin) is the nav banner's second provider in the waterfall — see
+/// banner_ad_widget.dart.
 class AdService {
   static const _unityGameId = '800112186';
   static const _rewardedPlacementId = 'Rewarded_Android';
@@ -50,7 +50,6 @@ class AdService {
       onComplete: () {
         debugPrint('Unity Ads initialized');
         _isUnityInitialized = true;
-        loadRewardedAd(RewardedAdSlot.clue);
         loadRewardedAd(RewardedAdSlot.streakRepair);
       },
       onFailed: (error, message) {

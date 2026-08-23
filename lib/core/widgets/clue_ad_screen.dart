@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import '../theme/app_theme.dart';
 import '../utils/ad_service.dart';
-import '../utils/meta_banner_ad.dart';
-import 'aluna_mrec_ad.dart';
 
 /// A "watch an ad for a clue" screen modelled on Wordle's own — an ad
 /// embedded directly in a page WE control, with our own always-visible
 /// "Get Clue" button, rather than a network's native full-screen
-/// interstitial. A native interstitial view is owned entirely by the ad
-/// SDK: we can't put our own button on top of it or control how long it
-/// runs. Embedding a fixed-size (MREC) ad in our own screen sidesteps
-/// that entirely — the user decides when to move on, always.
+/// interstitial or rewarded ad. A rewarded video's watch length/skip
+/// behaviour is controlled by the SDK and the ad creative being served,
+/// not by us — there's no way to guarantee a short, predictable unlock
+/// time with one. Embedding a fixed-size banner in our own screen keeps
+/// that fully in our control instead: Unity's banner (the one format
+/// that's actually been reliable through this app's testing) plus a
+/// short minimum watch timer we own.
 Future<void> showClueAdScreen(BuildContext context) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute(
@@ -30,7 +32,7 @@ class _ClueAdScreen extends StatefulWidget {
 
 class _ClueAdScreenState extends State<_ClueAdScreen> {
   // Minimum time the ad must be visible before "Get Clue" is tappable —
-  // MREC ads have no SDK-level "reward earned" signal the way a
+  // banner ads have no SDK-level "reward earned" signal the way a
   // rewarded video does, so this is a product-level stand-in: give the
   // ad a real chance to actually be seen rather than letting the button
   // be tapped the instant the screen opens.
@@ -47,11 +49,11 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
     super.initState();
     // If the ad never calls back at all (success or failure) within
     // this window, don't leave the user stuck waiting on nothing —
-    // fall back to the house ad and start its own watch countdown.
+    // treat it the same as a failed load.
     _loadTimeoutTimer = Timer(const Duration(seconds: 8), () {
       if (mounted && !_adFailed && _countdownTimer == null) {
         setState(() => _adFailed = true);
-        _startCountdown();
+        _allowContinueImmediately();
       }
     });
   }
@@ -61,6 +63,14 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
     _countdownTimer?.cancel();
     _loadTimeoutTimer?.cancel();
     super.dispose();
+  }
+
+  void _allowContinueImmediately() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _secondsRemaining = 0;
+      _canContinue = true;
+    });
   }
 
   void _startCountdown() {
@@ -105,19 +115,21 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
             Expanded(
               child: Center(
                 child: _adFailed
-                    ? const AlunaMrecAd()
-                    : MetaBannerAd(
-                        placementId: adService.metaMrecPlacementId,
-                        size: MetaBannerSize.mrec,
-                        onLoad: _startCountdown,
-                        onFailed: (errorCode, errorMessage) {
-                          debugPrint('Clue MREC ad failed to load: $errorCode $errorMessage');
+                    ? Container(
+                        width: 320, height: 50,
+                        decoration: BoxDecoration(
+                          color: surface2,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      )
+                    : UnityBannerAd(
+                        placementId: adService.unityBannerPlacementId,
+                        onLoad: (placementId) => _startCountdown(),
+                        onFailed: (placementId, error, message) {
+                          debugPrint('Clue ad failed to load: $error $message');
                           if (mounted) {
                             setState(() => _adFailed = true);
-                            // Falls back to a real house ad now, not a
-                            // blank box — it still deserves the same
-                            // minimum watch time as a real ad.
-                            _startCountdown();
+                            _allowContinueImmediately();
                           }
                         },
                       ),
