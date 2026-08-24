@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import 'app_effects.dart';
 import 'league_rank_reveal.dart';
 import '../../features/league/providers/league_provider.dart';
+import '../../features/league/widgets/league_tier_badge.dart' show LeagueTierHero;
 import '../../features/home/widgets/banner_ad_widget.dart' show BannerPosition;
 import '../utils/banner_position_route.dart';
 
@@ -36,13 +37,13 @@ class _LeagueRevealScreenState extends ConsumerState<LeagueRevealScreen>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppColors.textDark : AppColors.textLight;
     final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
 
     final data = ref.watch(playerDocProvider).valueOrNull?.data();
     final inLeague = data != null &&
         data['roomId'] != null &&
         data['pendingJoin'] != true;
+    final tier = data?['tier'] as String? ?? 'bronze';
 
     void finish() {
       HapticFeedback.mediumImpact();
@@ -64,18 +65,9 @@ class _LeagueRevealScreenState extends ConsumerState<LeagueRevealScreen>
                     duration: const Duration(milliseconds: 500),
                     curve: Curves.elasticOut,
                     builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
-                    child: const Text('🏆', style: TextStyle(fontSize: 40)),
+                    child: LeagueTierHero(tier: tier, isDark: isDark),
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    'Your League',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Outfit', fontSize: 19, fontWeight: FontWeight.w700,
-                      color: textColor, letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
                   Text(
                     "See where today's score moved you",
                     textAlign: TextAlign.center,

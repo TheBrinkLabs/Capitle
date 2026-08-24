@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Tiers currently live in the league. Platinum is deliberately not in
 /// this list yet — the room-assignment fallback (a single, possibly
@@ -56,5 +57,63 @@ class LeagueTierBadge extends StatelessWidget {
             fontSize: fontSize, fontWeight: FontWeight.w700, color: color)),
       ]),
     );
+  }
+}
+
+/// Prominent tier display — the medal and the tier name ("Bronze
+/// League") sitting directly on the page, no card/border around it.
+/// Used both at the top of the active League tab and on the post-game
+/// league reveal, so a player sees the exact same "you're in Bronze
+/// League" framing in both places.
+class LeagueTierHero extends StatelessWidget {
+  final String tier;
+  final bool isDark;
+  const LeagueTierHero({super.key, required this.tier, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = tierColor(tier);
+    final textColor = isDark ? AppColors.textDark : AppColors.textLight;
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(
+        width: 56,
+        height: 56,
+        child: Stack(alignment: Alignment.center, children: [
+          // Soft outer glow.
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [color.withOpacity(0.3), Colors.transparent]),
+            ),
+          ),
+          // The medal itself — gradient-filled circle matching the
+          // tier's own colour rather than a fixed preset.
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+                colors: [color, color.withOpacity(0.65)],
+              ),
+              boxShadow: [
+                BoxShadow(color: color.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 3)),
+              ],
+            ),
+            child: Center(child: Text(tierEmoji(tier), style: const TextStyle(fontSize: 21))),
+          ),
+        ]),
+      ),
+      const SizedBox(width: 14),
+      Text(
+        '${tierLabel(tier)} League',
+        style: TextStyle(
+          fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.w800,
+          color: textColor, letterSpacing: -0.3,
+        ),
+      ),
+    ]);
   }
 }

@@ -156,7 +156,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _LeagueTierHero(tier: tier, isDark: isDark),
+                LeagueTierHero(tier: tier, isDark: isDark),
                 const SizedBox(height: 18),
                 membersAsync.when(
                   loading: () => const Padding(
@@ -197,63 +197,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   }
 }
 
-/// Prominent tier display at the top of the active leaderboard view —
-/// just the medal and the tier name ("Bronze League") sitting directly
-/// on the page, no card/border around it. Deliberately unboxed: a
-/// bordered card here duplicated the page's own "League" title, so both
-/// were collapsed into this one plain, prominent line instead.
-class _LeagueTierHero extends StatelessWidget {
-  final String tier;
-  final bool isDark;
-  const _LeagueTierHero({required this.tier, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = tierColor(tier);
-    final textColor = isDark ? AppColors.textDark : AppColors.textLight;
-
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      SizedBox(
-        width: 56,
-        height: 56,
-        child: Stack(alignment: Alignment.center, children: [
-          // Soft outer glow.
-          Container(
-            width: 56, height: 56,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(colors: [color.withOpacity(0.3), Colors.transparent]),
-            ),
-          ),
-          // The medal itself — gradient-filled circle matching the
-          // tier's own colour rather than a fixed preset.
-          Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [color, color.withOpacity(0.65)],
-              ),
-              boxShadow: [
-                BoxShadow(color: color.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 3)),
-              ],
-            ),
-            child: Center(child: Text(tierEmoji(tier), style: const TextStyle(fontSize: 21))),
-          ),
-        ]),
-      ),
-      const SizedBox(width: 14),
-      Text(
-        '${tierLabel(tier)} League',
-        style: TextStyle(
-          fontFamily: 'Outfit', fontSize: 22, fontWeight: FontWeight.w800,
-          color: textColor, letterSpacing: -0.3,
-        ),
-      ),
-    ]);
-  }
-}
 
 class _SetupPrompt extends StatelessWidget {
   final bool isDark;

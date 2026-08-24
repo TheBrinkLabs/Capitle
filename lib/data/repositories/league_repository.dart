@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/league_scoring.dart';
@@ -24,6 +25,13 @@ class LeagueRepository {
   /// tier=bronze — the weekly rollover job is the only thing ever allowed
   /// to change tier/roomId/pendingJoin after this. A no-op if the document
   /// already exists (e.g. re-running setup from Settings).
+  ///
+  /// isTestAccount is stamped from kDebugMode at creation time — debug
+  /// builds are dev/test devices, not real players, and without real
+  /// uninstall detection (this app has no push-token infrastructure to
+  /// build that on) they'd otherwise sit in the production league
+  /// forever like any other player. The daily join job deletes accounts
+  /// flagged this way after 72h — see assignNewJoiners.js.
   Future<void> ensurePlayerDocument({
     required String uid,
     required String nickname,
@@ -43,6 +51,7 @@ class LeagueRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'linkedGoogle': false,
+      'isTestAccount': kDebugMode,
     });
   }
 

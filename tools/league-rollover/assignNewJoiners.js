@@ -18,6 +18,45 @@ const admin = require('firebase-admin');
 const { isoWeekId, currentWeekStartUtc } = require('./isoWeek');
 const { assignRoomsForTier } = require('./assignRooms');
 
+// Debug builds stamp isTestAccount: true at signup (see
+// LeagueRepository.ensurePlayerDocument) — dev/test devices, not real
+// players. There's no real uninstall detection to clean these up the
+// moment testing actually ends (this app has no push-token
+// infrastructure to build that on — see aluna_availability_service.dart
+// for the sibling discussion), so instead: purge anything still flagged
+// isTestAccount once it's old enough that it's clearly not a live
+// testing session anymore. Runs before the pendingJoin sweep below so a
+// stale test account never gets swept into a fresh room first.
+const TEST_ACCOUNT_MAX_AGE_HOURS = 72;
+
+async function pruneStaleTestAccounts(db) {
+  const cutoff = new Date(Date.now() - TEST_ACCOUNT_MAX_AGE_HOURS * 60 * 60 * 1000);
+  const snap = await db.collection('players').where('isTestAccount', '==', true).get();
+
+  let pruned = 0;
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const createdAt = data.createdAt;
+    if (!createdAt || createdAt.toDate() > cutoff) continue;
+
+    const scoresSnap = await doc.ref.collection('scores').listDocuments();
+    for (const weekDoc of scoresSnap) {
+      const modesSnap = await weekDoc.collection('modes').listDocuments();
+      for (const modeDoc of modesSnap) await modeDoc.delete();
+      await weekDoc.delete();
+    }
+    await doc.ref.delete();
+
+    if (data.roomId) {
+      await db.collection('leagueRooms').doc(data.roomId).update({
+        memberUids: admin.firestore.FieldValue.arrayRemove(doc.id),
+      });
+    }
+    pruned++;
+  }
+  console.log(`Pruned ${pruned} stale test account(s) (older than ${TEST_ACCOUNT_MAX_AGE_HOURS}h).`);
+}
+
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
@@ -29,6 +68,8 @@ async function main() {
   const dateKey = now.toISOString().slice(0, 10); // YYYY-MM-DD, UTC
 
   console.log(`Daily join run at ${now.toISOString()} — week ${weekId}, date ${dateKey}`);
+
+  await pruneStaleTestAccounts(db);
 
   const pendingSnap = await db.collection('players').where('pendingJoin', '==', true).get();
   const uids = pendingSnap.docs.map((d) => d.id);
