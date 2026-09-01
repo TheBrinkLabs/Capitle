@@ -1,9 +1,12 @@
 'use strict';
 
 // Lightweight daily companion to rollover.js — assigns players who signed
-// up mid-week (pendingJoin still true) into a Bronze room together, so a
-// new signup waits at most ~24h to see a real room instead of up to 6
-// days for the next Monday rollover. Deliberately does NOT touch scoring,
+// up mid-week (pendingJoin still true) into a Bronze room, so a new
+// signup waits at most ~24h to see a real room instead of up to 6 days
+// for the next Monday rollover. Prefers topping up an existing
+// under-capacity room over spinning up a new one, so a small (or lone)
+// day's cohort doesn't end up stuck alone with no one to play against
+// — see foldIntoExistingRooms below. Deliberately does NOT touch scoring,
 // promotion, or relegation — those stay exclusively on the weekly cadence
 // in rollover.js, which already sweeps any still-pending players itself
 // as part of its own Monday run, so this script and that one never fight
@@ -16,7 +19,7 @@
 
 const admin = require('firebase-admin');
 const { isoWeekId, currentWeekStartUtc } = require('./isoWeek');
-const { assignRoomsForTier } = require('./assignRooms');
+const { assignRoomsForTier, MAX_SIZE } = require('./assignRooms');
 
 // Debug builds stamp isTestAccount: true at signup (see
 // LeagueRepository.ensurePlayerDocument) — dev/test devices, not real
@@ -57,6 +60,104 @@ async function pruneStaleTestAccounts(db) {
   console.log(`Pruned ${pruned} stale test account(s) (older than ${TEST_ACCOUNT_MAX_AGE_HOURS}h).`);
 }
 
+// Reinstall churn: a player who reinstalls (or clears app data) gets a
+// fresh anonymous uid and a brand-new players/{uid} doc, orphaning the
+// old one — it just sits there forever with no way to ever be reached
+// again, quietly bloating the league (an extra body in the room, extra
+// weight in size-based rebalancing) without ever playing again. The app
+// stamps a per-device deviceId at signup (see DeviceIdService /
+// LeagueRepository.ensurePlayerDocument) specifically so this job can
+// spot that pattern: multiple player docs sharing the same device.
+// Deletion only ever happens here, server-side — a client reporting a
+// matching deviceId is not itself authorization to delete another
+// player's account, so this can't be triggered client-side even in
+// principle (see firestore.rules: players/{uid} delete is always false).
+async function pruneDuplicateDeviceAccounts(db) {
+  const snap = await db.collection('players').get();
+
+  const byDevice = new Map();
+  for (const doc of snap.docs) {
+    const deviceId = doc.data().deviceId;
+    if (!deviceId) continue;
+    if (!byDevice.has(deviceId)) byDevice.set(deviceId, []);
+    byDevice.get(deviceId).push(doc);
+  }
+
+  let pruned = 0;
+  for (const [deviceId, docs] of byDevice.entries()) {
+    if (docs.length < 2) continue;
+
+    // Newest createdAt wins (the currently-active install) — every other
+    // doc sharing this device is a stale duplicate from an earlier
+    // install. A missing createdAt sorts as oldest (epoch 0), never kept
+    // over a doc with a real timestamp.
+    docs.sort((a, b) => {
+      const ta = a.data().createdAt?.toMillis() ?? 0;
+      const tb = b.data().createdAt?.toMillis() ?? 0;
+      return tb - ta;
+    });
+    const [keep, ...stale] = docs;
+    console.log(`Device ${deviceId}: keeping ${keep.id}, pruning ${stale.length} older duplicate(s)`);
+
+    for (const doc of stale) {
+      const data = doc.data();
+      const scoresSnap = await doc.ref.collection('scores').listDocuments();
+      for (const weekDoc of scoresSnap) {
+        const modesSnap = await weekDoc.collection('modes').listDocuments();
+        for (const modeDoc of modesSnap) await modeDoc.delete();
+        await weekDoc.delete();
+      }
+      await doc.ref.delete();
+
+      if (data.roomId) {
+        await db.collection('leagueRooms').doc(data.roomId).update({
+          memberUids: admin.firestore.FieldValue.arrayRemove(doc.id),
+        });
+      }
+      pruned++;
+    }
+  }
+  console.log(`Pruned ${pruned} duplicate-device account(s).`);
+}
+
+// A lone (or small) pending cohort shouldn't be stuck by itself in a
+// brand-new room with no one to play against — top up whatever Bronze
+// rooms already exist this week (both the Monday rollover's main rooms
+// and earlier days' daily-cohort rooms) before ever creating a new one.
+// Fills the smallest/loneliest rooms first. Returns whichever uids
+// couldn't be placed (no existing room had spare capacity), for the
+// caller to bucket into fresh rooms as before.
+async function foldIntoExistingRooms(db, weekId, uids) {
+  const roomsSnap = await db.collection('leagueRooms')
+    .where('tier', '==', 'bronze')
+    .where('weekId', '==', weekId)
+    .get();
+
+  const candidates = roomsSnap.docs
+    .map((d) => ({ ref: d.ref, size: (d.data().memberUids || []).length }))
+    .filter((r) => r.size < MAX_SIZE)
+    .sort((a, b) => a.size - b.size);
+
+  let remaining = uids.slice();
+  for (const room of candidates) {
+    if (remaining.length === 0) break;
+    const take = remaining.splice(0, MAX_SIZE - room.size);
+    if (take.length === 0) continue;
+
+    await room.ref.update({ memberUids: admin.firestore.FieldValue.arrayUnion(...take) });
+    const batch = db.batch();
+    for (const uid of take) {
+      batch.set(db.collection('players').doc(uid), {
+        tier: 'bronze', roomId: room.ref.id, pendingJoin: false,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+    await batch.commit();
+    console.log(`Folded ${take.length} player(s) into existing room ${room.ref.id} (was ${room.size})`);
+  }
+  return remaining;
+}
+
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
@@ -70,13 +171,20 @@ async function main() {
   console.log(`Daily join run at ${now.toISOString()} — week ${weekId}, date ${dateKey}`);
 
   await pruneStaleTestAccounts(db);
+  await pruneDuplicateDeviceAccounts(db);
 
   const pendingSnap = await db.collection('players').where('pendingJoin', '==', true).get();
-  const uids = pendingSnap.docs.map((d) => d.id);
-  console.log(`${uids.length} player(s) pending Bronze assignment`);
+  const allUids = pendingSnap.docs.map((d) => d.id);
+  console.log(`${allUids.length} player(s) pending Bronze assignment`);
 
-  if (uids.length === 0) {
+  if (allUids.length === 0) {
     console.log('Nothing to do.');
+    return;
+  }
+
+  const uids = await foldIntoExistingRooms(db, weekId, allUids);
+  if (uids.length === 0) {
+    console.log('Daily join complete: everyone folded into an existing room, no new rooms needed.');
     return;
   }
 

@@ -1,8 +1,8 @@
 'use strict';
 
-const TARGET_SIZE = 15;
-const MIN_SIZE = 12;
-const MAX_SIZE = 19;
+const TARGET_SIZE = 10;
+const MIN_SIZE = 7;
+const MAX_SIZE = 14;
 
 /** Deterministic seeded shuffle (mulberry32) so a re-run with the same
  * weekId (e.g. after a failed run is retried) produces identical room
@@ -26,7 +26,7 @@ function seededShuffle(array, seed) {
 }
 
 /**
- * Buckets a tier's incoming player pool into rooms of 12-19, distributing
+ * Buckets a tier's incoming player pool into rooms of 7-14, distributing
  * any remainder across the first N rooms rather than leaving a trailing
  * undersized room. A pool at or below MAX_SIZE becomes a single room, even
  * if under MIN_SIZE — an accepted, unavoidable cold-start case (never
