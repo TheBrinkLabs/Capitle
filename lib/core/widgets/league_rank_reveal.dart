@@ -16,8 +16,27 @@ import '../../features/league/providers/league_provider.dart';
 /// bonus flourish on top of the day-complete recap, not essential to it.
 class LeagueRankReveal extends StatefulWidget {
   final int todayScore;
+  // The player's weekly league total as it stood BEFORE today's first
+  // submission, captured once by game_provider.dart's _onGameOver right
+  // before that write — a guaranteed-accurate baseline. Null falls back
+  // to inferring it from a live re-fetch (see _RankRevealAnimation),
+  // which is what this whole flow used to do unconditionally and is the
+  // source of a real bug: once a player has scored on an earlier day
+  // this week, "current total minus todayScore" only equals the true
+  // pre-today total if the re-fetch has actually caught up with today's
+  // write — and the old staleness check (comparing against todayScore
+  // alone) can't tell the difference once the weekly total already
+  // exceeds a single day's score, which is true on virtually every day
+  // but the first. The visible symptom: the reveal animates a score
+  // increase but rests on the PRE-today total instead of the real one.
+  final int? scoreBeforeToday;
   final bool isDark;
-  const LeagueRankReveal({super.key, required this.todayScore, required this.isDark});
+  const LeagueRankReveal({
+    super.key,
+    required this.todayScore,
+    this.scoreBeforeToday,
+    required this.isDark,
+  });
 
   @override
   State<LeagueRankReveal> createState() => _LeagueRankRevealState();
@@ -49,14 +68,19 @@ class _LeagueRankRevealState extends State<LeagueRankReveal> {
         child: Center(child: CircularProgressIndicator()),
       );
     }
-    return _LeagueRankRevealContent(todayScore: widget.todayScore, isDark: widget.isDark);
+    return _LeagueRankRevealContent(
+      todayScore: widget.todayScore,
+      scoreBeforeToday: widget.scoreBeforeToday,
+      isDark: widget.isDark,
+    );
   }
 }
 
 class _LeagueRankRevealContent extends ConsumerStatefulWidget {
   final int todayScore;
+  final int? scoreBeforeToday;
   final bool isDark;
-  const _LeagueRankRevealContent({required this.todayScore, required this.isDark});
+  const _LeagueRankRevealContent({required this.todayScore, this.scoreBeforeToday, required this.isDark});
 
   @override
   ConsumerState<_LeagueRankRevealContent> createState() => _LeagueRankRevealContentState();
@@ -123,7 +147,16 @@ class _LeagueRankRevealContentState extends ConsumerState<_LeagueRankRevealConte
         if (!hasMe) return const SizedBox.shrink();
 
         final mine = members.firstWhere((m) => m.uid == uid);
-        final isStale = mine.score < widget.todayScore;
+        // With a real captured baseline, this is an exact check: the
+        // fetched total must be at least baseline+todayScore. Without one
+        // (old day records, or the capture itself failed), fall back to
+        // the weaker "at least todayScore alone" check — better than
+        // nothing, but see scoreBeforeToday's own doc comment for why
+        // that's not reliable past the first scoring day of a week.
+        final minExpected = widget.scoreBeforeToday != null
+            ? widget.scoreBeforeToday! + widget.todayScore
+            : widget.todayScore;
+        final isStale = mine.score < minExpected;
         if (isStale && _retriesLeft > 0) {
           _scheduleRetryIfStale(roomId);
           return const Padding(
@@ -135,7 +168,13 @@ class _LeagueRankRevealContentState extends ConsumerState<_LeagueRankRevealConte
         // spinning forever. _RankRevealAnimation clamps defensively for
         // exactly this case (an under-animated reveal beats a stuck one).
 
-        return _RankRevealAnimation(members: members, myUid: uid, todayScore: widget.todayScore, isDark: widget.isDark);
+        return _RankRevealAnimation(
+          members: members,
+          myUid: uid,
+          todayScore: widget.todayScore,
+          scoreBeforeToday: widget.scoreBeforeToday,
+          isDark: widget.isDark,
+        );
       },
     );
   }
@@ -145,11 +184,13 @@ class _RankRevealAnimation extends StatefulWidget {
   final List<LeagueMemberEntry> members;
   final String myUid;
   final int todayScore;
+  final int? scoreBeforeToday;
   final bool isDark;
   const _RankRevealAnimation({
     required this.members,
     required this.myUid,
     required this.todayScore,
+    this.scoreBeforeToday,
     required this.isDark,
   });
 
@@ -186,10 +227,15 @@ class _RankRevealAnimationState extends State<_RankRevealAnimation> with SingleT
 
     final myEntry = widget.members.firstWhere((m) => m.uid == widget.myUid);
     _myScoreAfter = myEntry.score;
-    // Clamped defensively — if the pre-fetch delay somehow wasn't enough
-    // and today's submission still hadn't landed, this could otherwise
-    // go negative rather than just under-animate.
-    _myScoreBefore = (myEntry.score - widget.todayScore).clamp(0, 1 << 31);
+    // The real captured baseline is exact — prefer it outright. Falling
+    // back to "after minus todayScore" only when it's unavailable; that
+    // inference is correct only when the fetched "after" total already
+    // reflects today's write, which the staleness check above can't fully
+    // guarantee without a real baseline to check against (see
+    // scoreBeforeToday's doc comment). Clamped defensively either way —
+    // if today's submission still somehow hadn't landed, this goes
+    // negative otherwise instead of just under-animating.
+    _myScoreBefore = (widget.scoreBeforeToday ?? (myEntry.score - widget.todayScore)).clamp(0, 1 << 31);
 
     int byScoreThenStreak(LeagueMemberEntry a, LeagueMemberEntry b, int Function(LeagueMemberEntry) scoreOf) {
       final byScore = scoreOf(b).compareTo(scoreOf(a));

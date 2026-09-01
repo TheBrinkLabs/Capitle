@@ -19,11 +19,13 @@ class DailyCompleteScreen extends ConsumerStatefulWidget {
   final List<GameMode> activeModes;
   final PlayerStats stats;
   final int todayScore;
+  final int? leagueScoreBeforeToday;
   const DailyCompleteScreen({
     super.key,
     required this.activeModes,
     required this.stats,
     required this.todayScore,
+    this.leagueScoreBeforeToday,
   });
 
   @override
@@ -229,7 +231,10 @@ class _DailyCompleteScreenState extends ConsumerState<DailyCompleteScreen>
                     HapticFeedback.mediumImpact();
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => LeagueRevealScreen(todayScore: widget.todayScore),
+                        builder: (_) => LeagueRevealScreen(
+                          todayScore: widget.todayScore,
+                          leagueScoreBeforeToday: widget.leagueScoreBeforeToday,
+                        ),
                         fullscreenDialog: true,
                       ),
                     );

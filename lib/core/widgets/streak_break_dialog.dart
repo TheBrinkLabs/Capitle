@@ -81,31 +81,53 @@ class _StreakBreakDialogState extends State<_StreakBreakDialog> with SingleTicke
     super.dispose();
   }
 
-  // Trialling Vungle's interstitial here in place of Unity's rewarded
-  // video, to see how it performs for this slot. Unlike rewarded, an
-  // interstitial has no "watched to completion" signal of its own — the
-  // streak saves as soon as the ad is dismissed, full stop. That's a
-  // slightly weaker commitment than rewarded's guarantee, which is the
-  // actual trade-off being tested here alongside fill/revenue.
+  // Waterfall: Unity's rewarded video first (a real "watched to
+  // completion" guarantee, unlike an interstitial), falling back to
+  // Vungle's interstitial if Unity has nothing. Vungle alone had this
+  // slot silently doing nothing for days whenever its account had no
+  // fill — a single-provider slot has no way to recover from that.
   void _watchAd() {
     if (_watching || _resolved) return;
     setState(() => _watching = true);
+    _tryUnity();
+  }
 
-    adService.showVungleInterstitial(
-      onDismissed: () async {
-        await widget.onWatchAd();
-        _resolved = true;
-        if (mounted) Navigator.of(context).pop();
-      },
-      onNotReady: () {
-        if (mounted) {
-          setState(() => _watching = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Ad isn't ready yet — try again in a moment.")),
-          );
-        }
-      },
+  void _tryUnity() {
+    if (!adService.isRewardedAdReady(RewardedAdSlot.streakRepair)) {
+      _tryVungle();
+      return;
+    }
+    adService.showRewardedAd(
+      RewardedAdSlot.streakRepair,
+      onReward: _onAdWatched,
+      // Unity's plugin conflates "user skipped early" and "ad failed to
+      // display" into this same callback — either way, fall through to
+      // Vungle rather than leaving the player with nothing.
+      onDismissedWithoutReward: _tryVungle,
+      onNotReady: _tryVungle,
     );
+  }
+
+  void _tryVungle() {
+    adService.showVungleInterstitial(
+      onDismissed: _onAdWatched,
+      onNotReady: _onAllProvidersFailed,
+    );
+  }
+
+  Future<void> _onAdWatched() async {
+    await widget.onWatchAd();
+    _resolved = true;
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _onAllProvidersFailed() {
+    if (mounted) {
+      setState(() => _watching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No ad available right now — try again in a moment.")),
+      );
+    }
   }
 
   void _letItGo() {

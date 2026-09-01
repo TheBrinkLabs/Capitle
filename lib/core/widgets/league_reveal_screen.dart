@@ -23,7 +23,8 @@ import '../utils/banner_position_route.dart';
 /// so this screen keeps that case deliberately minimal instead.
 class LeagueRevealScreen extends ConsumerStatefulWidget {
   final int todayScore;
-  const LeagueRevealScreen({super.key, required this.todayScore});
+  final int? leagueScoreBeforeToday;
+  const LeagueRevealScreen({super.key, required this.todayScore, this.leagueScoreBeforeToday});
 
   @override
   ConsumerState<LeagueRevealScreen> createState() => _LeagueRevealScreenState();
@@ -77,7 +78,11 @@ class _LeagueRevealScreenState extends ConsumerState<LeagueRevealScreen>
                 ] else
                   const SizedBox(height: 80),
 
-                LeagueRankReveal(todayScore: widget.todayScore, isDark: isDark),
+                LeagueRankReveal(
+                  todayScore: widget.todayScore,
+                  scoreBeforeToday: widget.leagueScoreBeforeToday,
+                  isDark: isDark,
+                ),
                 const SizedBox(height: 32),
 
                 GestureDetector(

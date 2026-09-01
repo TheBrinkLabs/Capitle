@@ -111,6 +111,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen>
                   activeModes: settings.activeModes,
                   stats: stats,
                   todayScore: dayRecord.totalScoreFor(settings.activeModes),
+                  leagueScoreBeforeToday: dayRecord.leagueScoreBeforeToday,
                 ),
                 fullscreenDialog: true,
               ),

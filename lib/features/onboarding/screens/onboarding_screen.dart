@@ -223,10 +223,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(widget.isFirstLaunch ? '🚩' : '👍', style: const TextStyle(fontSize: 18)),
+                                Text(widget.isFirstLaunch ? '🚀' : '👍', style: const TextStyle(fontSize: 18)),
                                 const SizedBox(width: 8),
                                 Text(
-                                  widget.isFirstLaunch ? "Let's guess a flag" : "Got it, thanks!",
+                                  widget.isFirstLaunch ? "Let's get started" : "Got it, thanks!",
                                   style: const TextStyle(
                                     fontFamily: 'Outfit',
                                     fontSize: 16,

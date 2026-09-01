@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/utils/league_scoring.dart';
 import '../../../core/utils/nickname_generator.dart';
+import '../../../core/utils/device_id_service.dart';
 import '../../../core/utils/providers.dart' show leagueTabActiveProvider;
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/league_repository.dart';
@@ -47,6 +48,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
             uid: uid,
             nickname: profile.nickname ?? generateFallbackNickname(),
             countryCode: profile.countryCode,
+            deviceId: await deviceIdService.getDeviceId(),
           );
     } catch (_) {
       // Swallowed deliberately — playerDocProvider's live stream just

@@ -4,12 +4,13 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_effects.dart';
 import '../../../core/utils/nickname_generator.dart';
 import '../../../data/models/country_flag_data.dart';
-import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/league_repository.dart';
 import '../../../data/models/game_models.dart';
 import '../../../features/game/screens/game_screen.dart';
 import '../../../features/profile/providers/player_profile_provider.dart';
 import '../../../main_scaffold.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/utils/device_id_service.dart';
 
 /// How this screen was reached, which decides what happens once setup
 /// finishes (whether Skip/Continue was chosen either way — this never
@@ -32,6 +33,8 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   late final TextEditingController _nicknameController;
   late String _countryCode;
   bool _saving = false;
+  bool _linkingGoogle = false;
+  bool _linkedGoogle = authService.isLinkedToGoogle;
 
   @override
   void initState() {
@@ -58,6 +61,68 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     if (selected != null) setState(() => _countryCode = selected);
   }
 
+  /// The one entry point for both "back up a new profile" and "restore an
+  /// existing one" — [AuthService.linkGoogle] already figures out which of
+  /// those happened (see its doc comment), so this just reacts to the
+  /// result rather than needing two separate buttons for what is the same
+  /// underlying action from the player's point of view.
+  Future<void> _signInWithGoogle() async {
+    if (_linkingGoogle || _saving) return;
+    setState(() => _linkingGoogle = true);
+
+    try {
+      final result = await authService.linkGoogle();
+      // authService.uid reads FirebaseAuth's currentUser directly — unlike
+      // ref.read(uidProvider), which derives from authStateChanges() and
+      // can still reflect the pre-switch uid for a moment here, since that
+      // stream's update arrives over a separate native->Dart channel than
+      // this call's own result.
+      final uid = authService.uid;
+      if (uid != null) {
+        await ref.read(leagueRepositoryProvider).markLinkedGoogle(uid);
+      }
+
+      if (result.restoredExistingAccount && uid != null) {
+        // Pull the restored account's real nickname/country in before
+        // finishing, so "welcome back" actually shows their old profile
+        // rather than whatever fallback this fresh install generated.
+        try {
+          final doc = await ref.read(leagueRepositoryProvider).getPlayer(uid);
+          final data = doc.data();
+          final nickname = data?['nickname'] as String?;
+          final countryCode = data?['countryCode'] as String?;
+          if (nickname != null && nickname.isNotEmpty) _nicknameController.text = nickname;
+          if (countryCode != null && countryCode.isNotEmpty) _countryCode = countryCode;
+        } catch (_) {
+          // Non-fatal — they still keep whichever nickname/country was
+          // already showing; _finish below still restores the right uid.
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Welcome back — restoring your previous profile…')),
+        );
+        await _finish();
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _linkingGoogle = false;
+        _linkedGoogle = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Signed in with Google — your progress will be backed up.')),
+      );
+    } catch (e, st) {
+      debugPrint('Google sign-in from profile setup failed: $e\n$st');
+      if (!mounted) return;
+      setState(() => _linkingGoogle = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't sign in — try again in a bit.")),
+      );
+    }
+  }
+
   Future<void> _finish() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -69,7 +134,10 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     await notifier.markSetupComplete();
 
     final finalProfile = ref.read(playerProfileProvider);
-    final uid = ref.read(uidProvider);
+    // authService.uid, not ref.read(uidProvider) — see _signInWithGoogle's
+    // comment; _finish can run immediately after a Google link/restore,
+    // where the stream-backed provider may still lag the real current user.
+    final uid = authService.uid;
     if (uid != null) {
       final repo = ref.read(leagueRepositoryProvider);
       final resolvedNickname = finalProfile.nickname ?? generateFallbackNickname();
@@ -84,6 +152,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           uid: uid,
           nickname: resolvedNickname,
           countryCode: finalProfile.countryCode,
+          deviceId: await deviceIdService.getDeviceId(),
         );
         await repo.syncProfile(
           uid: uid,
@@ -133,7 +202,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
             const SizedBox(height: 6),
             Text("This is what other players see on the leaderboard.",
                 style: TextStyle(fontSize: 13, color: textMuted)),
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
 
             Text('NICKNAME', style: TextStyle(
                 fontSize: 10, letterSpacing: 2.5, fontWeight: FontWeight.w700, color: textMuted)),
@@ -167,6 +236,16 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
             const Spacer(),
 
+            if (_linkedGoogle) ...[
+              Row(children: [
+                const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 18),
+                const SizedBox(width: 8),
+                Text('Signed in with Google — your progress is backed up.',
+                    style: TextStyle(fontSize: 12, color: textMuted)),
+              ]),
+              const SizedBox(height: 14),
+            ],
+
             GestureDetector(
               onTap: _saving ? null : _finish,
               child: Container(
@@ -179,25 +258,47 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                   child: _saving
                       ? const SizedBox(width: 20, height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : const Text('Continue', style: TextStyle(
+                      : Text(_linkedGoogle ? 'Continue' : 'Continue without signing in', style: const TextStyle(
                           fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black)),
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            Center(
-              child: GestureDetector(
-                onTap: _saving ? null : () {
-                  _nicknameController.text = '';
-                  _finish();
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Text('Skip for now', style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500, color: textMuted)),
+
+            if (!_linkedGoogle) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: _linkingGoogle ? null : _signInWithGoogle,
+                child: Container(
+                  width: double.infinity, height: 52,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.surface2 : AppColors.surface2Light,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Center(
+                    child: _linkingGoogle
+                        ? SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: textMuted))
+                        : Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Text('🔗', style: TextStyle(fontSize: 16)),
+                            const SizedBox(width: 8),
+                            Text('Continue with Google', style: TextStyle(
+                                fontFamily: 'Outfit', fontSize: 16, fontWeight: FontWeight.w700, color: textColor)),
+                          ]),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: 14),
+              Center(
+                child: GestureDetector(
+                  onTap: _linkingGoogle ? null : _signInWithGoogle,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('Played before? Sign in to restore your progress',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textMuted)),
+                  ),
+                ),
+              ),
+            ],
           ]),
         ),
       ),

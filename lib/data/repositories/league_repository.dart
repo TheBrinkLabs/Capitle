@@ -36,6 +36,7 @@ class LeagueRepository {
     required String uid,
     required String nickname,
     required String countryCode,
+    String? deviceId,
   }) async {
     final ref = _players.doc(uid);
     final snap = await ref.get();
@@ -52,6 +53,13 @@ class LeagueRepository {
       'updatedAt': FieldValue.serverTimestamp(),
       'linkedGoogle': false,
       'isTestAccount': kDebugMode,
+      // Reinstall-churn cleanup signal — see DeviceIdService's doc comment.
+      // Only ever set here, at creation; the actual duplicate-account
+      // deletion runs server-side in the daily rollover job (never from
+      // the client — deleting another player's doc needs to be a trusted,
+      // audited action, not something a client can trigger by just
+      // reporting a matching device ID).
+      if (deviceId != null) 'deviceId': deviceId,
     });
   }
 
@@ -84,6 +92,17 @@ class LeagueRepository {
 
   Future<DocumentSnapshot<Map<String, dynamic>>> getPlayer(String uid) =>
       _players.doc(uid).get();
+
+  /// This player's current-week league score total, summed live from
+  /// Firestore (not a client cache) — used to capture a guaranteed-
+  /// accurate "before" baseline just prior to submitting today's first
+  /// score, so LeagueRankReveal never has to infer it after the fact.
+  Future<int> myWeeklyScoreTotal(String uid) async {
+    final weekId = currentWeekId();
+    final modesRef = _players.doc(uid).collection('scores').doc(weekId).collection('modes');
+    final agg = await modesRef.aggregate(sum('score')).get();
+    return (agg.getSum('score') ?? 0).round();
+  }
 
   /// Writes this game's result to players/{uid}/scores/{weekId}/modes/{modeDocId}.
   /// The document ID is deterministic (mode + today's date) and security

@@ -19,29 +19,25 @@ class LeagueLeaderboard extends StatelessWidget {
     required this.isDark,
   });
 
-  // Mirrors rollover.js's zoneSize() exactly for relegation and for
-  // Silver->Gold promotion — the highlighting needs to match what the
-  // server will actually do there, or it'd mislead players about who's
-  // actually at risk.
+  // Mirrors rollover.js's zoneSize() exactly — used for relegation out of
+  // any non-Bronze tier.
   static int _zoneSize(int roomSize) => (roomSize * 0.2).floor().clamp(0, 3);
 
-  // Bronze->Silver is the one exception: the server's real rate tapers
-  // between 40% and 20% based on Silver's CURRENT total population
-  // (bronzePromotionFraction in rollover.js), which isn't something this
-  // widget has visibility into without an extra Firestore query just for
-  // a highlighting preview. Shows the boosted 40% ceiling instead — an
-  // optimistic approximation, not an exact match; the real promotion
-  // count is always decided server-side regardless of what's highlighted
-  // here.
-  static int _bronzePromotionCount(int roomSize) => (roomSize * 0.4).floor();
+  // Every promotion step (Bronze->Silver AND Silver->Gold) uses the
+  // server's boosted rate, which tapers between 40% and 20% based on the
+  // DESTINATION tier's current total population (boostedPromotionFraction
+  // in rollover.js) — not something this widget has visibility into
+  // without an extra Firestore query just for a highlighting preview.
+  // Shows the boosted 40% ceiling instead for both — an optimistic
+  // approximation, not an exact match; the real promotion count is always
+  // decided server-side regardless of what's highlighted here.
+  static int _boostedPromotionCount(int roomSize) => (roomSize * 0.4).floor();
 
   @override
   Widget build(BuildContext context) {
     final canPromote = tier != kTopTier;
     final canRelegate = tier != 'bronze';
-    final promotionZone = canPromote
-        ? (tier == 'bronze' ? _bronzePromotionCount(members.length) : _zoneSize(members.length))
-        : 0;
+    final promotionZone = canPromote ? _boostedPromotionCount(members.length) : 0;
     final relegationZone = canRelegate ? _zoneSize(members.length) : 0;
 
     return Column(

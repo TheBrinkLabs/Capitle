@@ -1,7 +1,7 @@
 name: capitle
 description: Daily capital city guessing game
 publish_to: 'none'
-version: 1.0.4+39
+version: 1.0.4+42
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -47,6 +47,7 @@ dependencies:
   cloud_firestore: ^5.6.12
   google_sign_in: ^7.2.0
   url_launcher: ^6.3.1
+  device_info_plus: ^12.4.0
 
 dev_dependencies:
   flutter_test:

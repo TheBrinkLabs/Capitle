@@ -166,6 +166,22 @@ class GameNotifier extends Notifier<GameState?> {
       GameMode.guessPopulation => record.copyWith(completedGuessPopulation: true, wonGuessPopulation: won, guessesUsedPopulation: guessesUsed, scoreGuessPopulation: score),
       GameMode.guessOutline => record.copyWith(completedGuessOutline: true, wonGuessOutline: won, guessesUsedOutline: guessesUsed, scoreGuessOutline: score),
     };
+
+    // Capture the player's weekly league total exactly as it stood BEFORE
+    // today's first submission — once per day, guaranteed accurate since
+    // it's read before any of today's writes land. See DayRecord's own
+    // doc comment on leagueScoreBeforeToday for why LeagueRankReveal needs
+    // this captured up front rather than inferred later from a re-fetch.
+    final uid = ref.read(uidProvider);
+    if (uid != null && record.leagueScoreBeforeToday == null) {
+      try {
+        final before = await ref.read(leagueRepositoryProvider).myWeeklyScoreTotal(uid);
+        record = record.copyWith(leagueScoreBeforeToday: before);
+      } catch (e, st) {
+        debugPrint('League before-score capture failed (non-fatal): $e\n$st');
+      }
+    }
+
     await repo.saveDayRecord(record);
 
     // League score submission — wrapped defensively like the notification
@@ -174,7 +190,6 @@ class GameNotifier extends Notifier<GameState?> {
     // signed in yet (Firebase unavailable, or somehow reached this point
     // before profile setup).
     try {
-      final uid = ref.read(uidProvider);
       if (uid != null) {
         await ref.read(leagueRepositoryProvider).submitGameScore(
               uid: uid,

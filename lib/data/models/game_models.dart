@@ -232,6 +232,19 @@ class DayRecord {
   // Freeze works. Stored as mode.name strings for simple JSON encoding.
   final Set<String> frozenModeNames;
 
+  // The player's league weekly score total as of just BEFORE today's
+  // first game submission — captured once, the first time any mode
+  // completes today (see game_provider.dart's _onGameOver), so
+  // LeagueRankReveal has a guaranteed-accurate "before" baseline to
+  // animate from instead of inferring it by subtracting todayScore from
+  // a live re-fetch that might not have caught up with today's write yet
+  // (a real bug: once a player has scored on an earlier day this week,
+  // that inferred value silently settles on the PRE-today total instead
+  // of the true new one whenever the re-fetch loses that race). Null for
+  // days from before this field existed, or when the fetch itself failed
+  // — callers fall back to the old inference in that case.
+  final int? leagueScoreBeforeToday;
+
   const DayRecord({
     required this.dateKey,
     this.completedGuessCountry = false,
@@ -259,6 +272,7 @@ class DayRecord {
     this.guessesUsedOutline = 0,
     this.scoreGuessOutline = 0,
     this.frozenModeNames = const {},
+    this.leagueScoreBeforeToday,
   });
 
   bool completedMode(GameMode mode) => switch (mode) {
@@ -321,6 +335,7 @@ class DayRecord {
     bool? completedGuessPopulation, bool? wonGuessPopulation, int? guessesUsedPopulation, int? scoreGuessPopulation,
     bool? completedGuessOutline, bool? wonGuessOutline, int? guessesUsedOutline, int? scoreGuessOutline,
     Set<String>? frozenModeNames,
+    int? leagueScoreBeforeToday,
   }) =>
       DayRecord(
         dateKey: dateKey,
@@ -349,6 +364,7 @@ class DayRecord {
         guessesUsedOutline: guessesUsedOutline ?? this.guessesUsedOutline,
         scoreGuessOutline: scoreGuessOutline ?? this.scoreGuessOutline,
         frozenModeNames: frozenModeNames ?? this.frozenModeNames,
+        leagueScoreBeforeToday: leagueScoreBeforeToday ?? this.leagueScoreBeforeToday,
       );
 
   /// Returns a copy with [mode] added to the frozen set for this day.
@@ -364,6 +380,7 @@ class DayRecord {
         'completedGuessPopulation': completedGuessPopulation, 'wonGuessPopulation': wonGuessPopulation, 'guessesUsedPopulation': guessesUsedPopulation, 'scoreGuessPopulation': scoreGuessPopulation,
         'completedGuessOutline': completedGuessOutline, 'wonGuessOutline': wonGuessOutline, 'guessesUsedOutline': guessesUsedOutline, 'scoreGuessOutline': scoreGuessOutline,
         'frozenModeNames': frozenModeNames.toList(),
+        'leagueScoreBeforeToday': leagueScoreBeforeToday,
       };
 
   factory DayRecord.fromJson(Map<String, dynamic> json) => DayRecord(
@@ -395,6 +412,7 @@ class DayRecord {
         frozenModeNames: ((json['frozenModeNames'] as List?) ?? const [])
             .map((e) => e as String)
             .toSet(),
+        leagueScoreBeforeToday: json['leagueScoreBeforeToday'] as int?,
       );
 }
 
