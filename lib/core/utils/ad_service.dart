@@ -29,6 +29,7 @@ class AdService {
 
   // Meta Audience Network — App ID 27937713359198663.
   static const _metaBannerPlacementId = '27937713359198663_27937721435864522';
+  static const _metaMrecPlacementId = '27937713359198663_27937721432531189';
 
   // Vungle (Liftoff Monetize) — App ID 6a8b5a2fa58d1846183b4aae.
   static const _vungleBannerPlacementId = 'BANNER-2335612';
@@ -114,6 +115,7 @@ class AdService {
   // ── Banner, second provider (Meta) ──────────────────────────────────
 
   String get metaBannerPlacementId => _metaBannerPlacementId;
+  String get metaMrecPlacementId => _metaMrecPlacementId;
   bool get isMetaInitialized => _isMetaInitialized;
 
   // ── Banner third provider, clue MREC, streak-repair interstitial trial

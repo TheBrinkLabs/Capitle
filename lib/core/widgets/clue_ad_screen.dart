@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 import '../theme/app_theme.dart';
 import '../utils/ad_service.dart';
 import '../utils/vungle_banner_ad.dart';
+import '../utils/meta_banner_ad.dart';
+import 'aluna_mrec_ad.dart';
 
 /// A "watch an ad for a clue" screen modelled on Wordle's own — an ad
 /// embedded directly in a page WE control, with our own always-visible
@@ -12,12 +13,13 @@ import '../utils/vungle_banner_ad.dart';
 /// behaviour is controlled by the SDK and the ad creative being served,
 /// not by us — there's no way to guarantee a short, predictable unlock
 /// time with one. Embedding a fixed-size ad in our own screen keeps that
-/// fully in our control instead: Vungle's MREC first (a bigger, higher-
-/// value format than a plain banner — worth more per view than what's
-/// already showing persistently elsewhere on screen), falling back to
-/// Unity's banner (the one format that's been reliably filling through
-/// this app's testing) if Vungle doesn't fill, plus a short minimum
-/// watch timer we own throughout.
+/// fully in our control instead: Vungle's MREC first, Meta's MREC second
+/// (both bigger, higher-value formats than a plain banner), and — since
+/// display ads have no minimum-watch guarantee either way — the internal
+/// Aluna house ad as a real final fallback instead of a blank placeholder,
+/// so there's always something worth looking at during the watch timer
+/// even when neither real network fills. Plus a short minimum watch timer
+/// we own throughout, independent of whichever slot ends up showing.
 Future<void> showClueAdScreen(BuildContext context) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute(
@@ -27,7 +29,7 @@ Future<void> showClueAdScreen(BuildContext context) {
   );
 }
 
-enum _ClueAdProvider { vungleMrec, unityBanner }
+enum _ClueAdProvider { vungleMrec, metaMrec }
 
 class _ClueAdScreen extends StatefulWidget {
   const _ClueAdScreen();
@@ -44,7 +46,7 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
   // be tapped the instant the screen opens.
   static const _minWatchSeconds = 7;
   static const _providerTimeout = Duration(seconds: 6);
-  static const _providers = [_ClueAdProvider.vungleMrec, _ClueAdProvider.unityBanner];
+  static const _providers = [_ClueAdProvider.vungleMrec, _ClueAdProvider.metaMrec];
 
   bool _adFailed = false;
   bool _canContinue = false;
@@ -83,16 +85,12 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
       _startProviderTimeout();
       return;
     }
+    // Both real networks struck out — the internal Aluna house ad is a
+    // real fallback, not a blank placeholder, so it still gets the same
+    // minimum-watch countdown as a real ad rather than letting the user
+    // through instantly.
     setState(() => _adFailed = true);
-    _allowContinueImmediately();
-  }
-
-  void _allowContinueImmediately() {
-    _countdownTimer?.cancel();
-    setState(() {
-      _secondsRemaining = 0;
-      _canContinue = true;
-    });
+    _startCountdown();
   }
 
   void _startCountdown() {
@@ -125,13 +123,14 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
             _onProviderFailed();
           },
         );
-      case _ClueAdProvider.unityBanner:
-        return UnityBannerAd(
-          key: const ValueKey('unity_banner'),
-          placementId: adService.unityBannerPlacementId,
-          onLoad: (placementId) => _startCountdown(),
-          onFailed: (placementId, error, message) {
-            debugPrint('Clue ad (Unity banner) failed to load: $error $message');
+      case _ClueAdProvider.metaMrec:
+        return MetaBannerAd(
+          key: const ValueKey('meta_mrec'),
+          placementId: adService.metaMrecPlacementId,
+          size: MetaBannerSize.mrec,
+          onLoad: _startCountdown,
+          onFailed: (errorCode, errorMessage) {
+            debugPrint('Clue ad (Meta MREC) failed to load: $errorCode $errorMessage');
             _onProviderFailed();
           },
         );
@@ -162,15 +161,7 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
             ),
             Expanded(
               child: Center(
-                child: _adFailed
-                    ? Container(
-                        width: 300, height: 250,
-                        decoration: BoxDecoration(
-                          color: surface2,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      )
-                    : _buildProviderAd(),
+                child: _adFailed ? const AlunaMrecAd() : _buildProviderAd(),
               ),
             ),
             Padding(

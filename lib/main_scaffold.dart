@@ -10,11 +10,11 @@ import 'features/league/screens/league_screen.dart';
 import 'features/stats/screens/stats_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
 
-// Home (0) and Stats (2) have always shown the banner; League (1) and
-// Settings (3) never have — this preserves that exactly, just now driven
-// by the single persistent banner instead of a per-tab one.
+// Home (0), League (1) and Stats (2) show the banner; Settings (3)
+// doesn't — still just the single persistent banner instance repositioned
+// per tab, never more than one shown at once.
 BannerPosition _bannerPositionForTab(int index) =>
-    (index == 0 || index == 2) ? BannerPosition.bottomAboveNav : BannerPosition.hidden;
+    (index == 0 || index == 1 || index == 2) ? BannerPosition.bottomAboveNav : BannerPosition.hidden;
 
 class MainScaffold extends ConsumerStatefulWidget {
   const MainScaffold({super.key});
