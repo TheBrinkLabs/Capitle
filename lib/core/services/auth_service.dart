@@ -19,6 +19,14 @@ class AuthService {
           .any((p) => p.providerId == 'google.com') ??
       false;
 
+  String? get linkedGoogleEmail {
+    final providers = FirebaseAuth.instance.currentUser?.providerData ?? const [];
+    for (final p in providers) {
+      if (p.providerId == 'google.com') return p.email;
+    }
+    return null;
+  }
+
   /// Signs in anonymously if there's no current user yet. Safe to call on
   /// every app launch. Never throws — on failure (offline cold start,
   /// Firebase misconfigured, etc.) [uid] just stays null and league
@@ -57,9 +65,11 @@ class AuthService {
   /// with the Google account they used before — Firebase rejects the link
   /// with `credential-already-in-use`; in that case this signs in with that
   /// credential directly instead, which switches the active UID to the
-  /// pre-existing linked account. Callers must treat that case as "welcome
-  /// back, restoring your previous profile," not a silent identity swap.
-  Future<UserCredential> linkGoogle() async {
+  /// pre-existing linked account. [GoogleLinkResult.restoredExistingAccount]
+  /// tells callers which case happened, so they can show "welcome back,
+  /// restoring your previous profile" instead of treating it as a silent
+  /// identity swap.
+  Future<GoogleLinkResult> linkGoogle() async {
     await _ensureGoogleInitialized();
     final account = await GoogleSignIn.instance.authenticate();
     final idToken = account.authentication.idToken;
@@ -67,18 +77,30 @@ class AuthService {
 
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      return FirebaseAuth.instance.signInWithCredential(credential);
+      final result = await FirebaseAuth.instance.signInWithCredential(credential);
+      return GoogleLinkResult(
+        credential: result,
+        restoredExistingAccount: result.additionalUserInfo?.isNewUser == false,
+      );
     }
 
     try {
-      return await currentUser.linkWithCredential(credential);
+      final result = await currentUser.linkWithCredential(credential);
+      return GoogleLinkResult(credential: result, restoredExistingAccount: false);
     } on FirebaseAuthException catch (e) {
       if (e.code == 'credential-already-in-use') {
-        return FirebaseAuth.instance.signInWithCredential(credential);
+        final result = await FirebaseAuth.instance.signInWithCredential(credential);
+        return GoogleLinkResult(credential: result, restoredExistingAccount: true);
       }
       rethrow;
     }
   }
+}
+
+class GoogleLinkResult {
+  final UserCredential credential;
+  final bool restoredExistingAccount;
+  const GoogleLinkResult({required this.credential, required this.restoredExistingAccount});
 }
 
 final authService = AuthService();

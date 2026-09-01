@@ -12,6 +12,7 @@ import '../../../core/utils/notification_service.dart';
 import '../../../core/utils/providers.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/repositories/league_repository.dart';
+import '../../profile/providers/player_profile_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -194,34 +195,7 @@ class SettingsScreen extends ConsumerWidget {
                       isDark: isDark,
                     ),
                     _Divider(isDark: isDark),
-                    _NavRow(
-                      icon: '🔗',
-                      iconBg: const Color(0x1400D4AA),
-                      title: 'Back up your progress',
-                      value: 'Sign in with Google',
-                      onTap: () async {
-                        try {
-                          await authService.linkGoogle();
-                          final uid = authService.uid;
-                          if (uid != null) {
-                            await ref.read(leagueRepositoryProvider).markLinkedGoogle(uid);
-                          }
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Your progress is now backed up.')),
-                            );
-                          }
-                        } catch (e, st) {
-                          debugPrint('Google sign-in link failed: $e\n$st');
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Couldn't sign in — try again in a bit.")),
-                            );
-                          }
-                        }
-                      },
-                      isDark: isDark,
-                    ),
+                    _GoogleSignInRow(isDark: isDark),
                   ]),
 
                   const SizedBox(height: 20),
@@ -777,6 +751,87 @@ class _SegControl extends StatelessWidget {
           }),
         ),
       );
+}
+
+/// Reflects the actual link state (unlike the old static row, which always
+/// said "Sign in with Google" even once already linked, with no way to
+/// tell). Owns its own bit of state so tapping updates the row in place
+/// without needing the whole SettingsScreen to become stateful.
+class _GoogleSignInRow extends ConsumerStatefulWidget {
+  final bool isDark;
+  const _GoogleSignInRow({required this.isDark});
+
+  @override
+  ConsumerState<_GoogleSignInRow> createState() => _GoogleSignInRowState();
+}
+
+class _GoogleSignInRowState extends ConsumerState<_GoogleSignInRow> {
+  late bool _linked = authService.isLinkedToGoogle;
+
+  Future<void> _handleTap() async {
+    if (_linked) {
+      final email = authService.linkedGoogleEmail;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(email != null ? 'Signed in as $email' : "You're already signed in with Google.")),
+      );
+      return;
+    }
+    try {
+      final result = await authService.linkGoogle();
+      final uid = authService.uid;
+      if (uid != null) {
+        await ref.read(leagueRepositoryProvider).markLinkedGoogle(uid);
+      }
+
+      if (result.restoredExistingAccount && uid != null) {
+        // Switching to the restored account's real uid doesn't pull its
+        // nickname/country into the LOCAL profile cache on its own — without
+        // this, "Edit League Profile" keeps showing whatever nickname this
+        // install had before signing in, not the restored account's actual
+        // one (matches the same fix already applied in profile setup's own
+        // Google sign-in flow).
+        try {
+          final doc = await ref.read(leagueRepositoryProvider).getPlayer(uid);
+          final data = doc.data();
+          final nickname = data?['nickname'] as String?;
+          final countryCode = data?['countryCode'] as String?;
+          final notifier = ref.read(playerProfileProvider.notifier);
+          if (nickname != null && nickname.isNotEmpty) await notifier.setNickname(nickname);
+          if (countryCode != null && countryCode.isNotEmpty) await notifier.setCountryCode(countryCode);
+        } catch (_) {
+          // Non-fatal — the account itself is still correctly switched;
+          // only the local display might lag until next Firestore sync.
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _linked = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.restoredExistingAccount
+            ? 'Welcome back — your previous progress has been restored.'
+            : 'Your progress is now backed up.')),
+      );
+    } catch (e, st) {
+      debugPrint('Google sign-in link failed: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't sign in — try again in a bit.")),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final email = _linked ? authService.linkedGoogleEmail : null;
+    return _NavRow(
+      icon: '🔗',
+      iconBg: const Color(0x1400D4AA),
+      title: _linked ? 'Signed in with Google' : 'Back up your progress',
+      value: _linked ? (email ?? 'Connected') : 'Sign in with Google',
+      onTap: _handleTap,
+      isDark: widget.isDark,
+    );
+  }
 }
 
 class _NavRow extends StatelessWidget {

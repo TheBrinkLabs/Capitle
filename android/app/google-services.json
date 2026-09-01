@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "429418557392-jkua3jjbr1lrq8gr775gt6mh74pf15ue.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.brinklabs.capitle",
+            "certificate_hash": "f374a01d97a784f1110bd6680a63b37ddcbbfafd"
+          }
+        },
+        {
           "client_id": "429418557392-sh9oh4mfppu6nn1ed2ne7d1pbd5cvhed.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
