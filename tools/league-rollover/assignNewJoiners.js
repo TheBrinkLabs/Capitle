@@ -110,9 +110,19 @@ async function pruneDuplicateDeviceAccounts(db) {
       await doc.ref.delete();
 
       if (data.roomId) {
-        await db.collection('leagueRooms').doc(data.roomId).update({
-          memberUids: admin.firestore.FieldValue.arrayRemove(doc.id),
-        });
+        // .update() throws if the room doc doesn't exist (e.g. already
+        // cleaned up, or a stale/bad roomId) — that's a real possibility
+        // here, not a should-never-happen case, and one bad reference
+        // shouldn't take down the rest of this run (and every other
+        // pending player's assignment along with it, which is exactly
+        // what happened the one time this wasn't guarded).
+        try {
+          await db.collection('leagueRooms').doc(data.roomId).update({
+            memberUids: admin.firestore.FieldValue.arrayRemove(doc.id),
+          });
+        } catch (err) {
+          console.warn(`Could not remove ${doc.id} from room ${data.roomId} (may not exist): ${err.message}`);
+        }
       }
       pruned++;
     }
