@@ -4,7 +4,6 @@ import '../../../core/utils/nickname_generator.dart';
 import '../../../core/utils/country_locale.dart';
 import '../../../data/models/player_profile.dart';
 import '../../../data/repositories/player_profile_repository.dart';
-import '../../league/widgets/league_tier_badge.dart' show kActiveTiers;
 
 final playerProfileRepositoryProvider = Provider<PlayerProfileRepository>((ref) {
   return PlayerProfileRepository(ref.watch(sharedPrefsProvider));
@@ -43,17 +42,17 @@ class PlayerProfileNotifier extends Notifier<PlayerProfile> {
     await _persist();
   }
 
-  /// Records the tier last seen from Firestore, and reports whether this
-  /// is a genuine promotion since the previously recorded tier (never
-  /// true on the very first call — no prior tier means nothing to compare
-  /// against yet).
-  Future<bool> noteTierAndCheckPromotion(String tier) async {
-    const order = kActiveTiers;
-    final previous = state.lastKnownTier;
-    state = state.copyWith(lastKnownTier: tier);
+  /// Reports whether [weekResultId] (a players/{uid}/weekHistory doc id,
+  /// e.g. "2026-W36") hasn't been shown to the player yet, and records it
+  /// as shown either way. Unlike a tier comparison, this fires the first
+  /// time it's ever called too — a first-ever weekHistory doc is a real
+  /// result worth revealing, not a false-positive baseline the way "no
+  /// prior tier" would be for a promotion check.
+  Future<bool> shouldShowWeekResult(String? weekResultId) async {
+    if (weekResultId == null || weekResultId == state.lastShownWeekResultId) return false;
+    state = state.copyWith(lastShownWeekResultId: weekResultId);
     await _persist();
-    if (previous == null) return false;
-    return order.indexOf(tier) > order.indexOf(previous);
+    return true;
   }
 
   /// Records the World Champion count last seen from Firestore, and

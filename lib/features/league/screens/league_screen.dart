@@ -13,7 +13,7 @@ import '../../../features/profile/providers/player_profile_provider.dart';
 import '../../../core/widgets/world_champion_celebration.dart';
 import '../providers/league_provider.dart';
 import '../widgets/league_leaderboard.dart';
-import '../widgets/league_promotion_celebration.dart';
+import '../widgets/league_week_result_celebration.dart';
 import '../widgets/league_tier_badge.dart';
 
 class LeagueScreen extends ConsumerStatefulWidget {
@@ -25,6 +25,14 @@ class LeagueScreen extends ConsumerStatefulWidget {
 
 class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   bool _retryingPlayerDoc = false;
+  // Sentinel so the very first resolved doc this mount (roomId != null)
+  // still triggers a check even though there's no "previous" value to
+  // compare against — unlike a ref.listen-based delta, which only fires
+  // on CHANGES after the listener attaches and would silently miss a
+  // rollover that already happened before this screen was ever opened
+  // this session (e.g. the app was reopened after being closed all week).
+  Object? _lastCheckedRoomId = _unchecked;
+  static const _unchecked = Object();
 
   // Handles a real-world gap: profile setup marks hasCompletedProfileSetup
   // (a local flag) as true regardless of whether the matching Firestore
@@ -59,11 +67,32 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
     }
   }
 
-  Future<void> _checkPromotion(String tier) async {
-    final promoted =
-        await ref.read(playerProfileProvider.notifier).noteTierAndCheckPromotion(tier);
-    if (!promoted || !mounted) return;
-    showLeaguePromotionCelebration(context, newTier: tier);
+  // Every player gets a fresh roomId every week at rollover — whether
+  // promoted, relegated, or staying put (see rollover.js step 3) — so it's
+  // a reliable "a new week just rolled over for this player" signal, unlike
+  // tier (which never changes on a 'stayed' outcome, missing that case
+  // entirely). Firestore weekHistory is the actual source of truth for
+  // what happened; this just decides when it's worth checking.
+  Future<void> _checkWeekResult() async {
+    final uid = ref.read(uidProvider);
+    if (uid == null) return;
+    final previousWeekId = isoWeekId(currentWeekStartUtc().subtract(const Duration(days: 7)));
+    final history = await ref.read(leagueRepositoryProvider).weekResult(uid, previousWeekId);
+    if (history == null || !mounted) return;
+
+    final shouldShow =
+        await ref.read(playerProfileProvider.notifier).shouldShowWeekResult(previousWeekId);
+    if (!shouldShow || !mounted) return;
+
+    final currentTier = ref.read(playerDocProvider).valueOrNull?.data()?['tier'] as String?;
+    showLeagueWeekResultReveal(
+      context,
+      outcome: weekOutcomeFromString(history['outcome'] as String? ?? 'stayed'),
+      oldTier: history['tier'] as String? ?? 'bronze',
+      newTier: currentTier ?? history['tier'] as String? ?? 'bronze',
+      rank: (history['rank'] as num?)?.toInt() ?? 1,
+      roomSize: (history['roomSize'] as num?)?.toInt() ?? 1,
+    );
   }
 
   // A World Champion win (rank #1 in the top tier) always leaves the
@@ -80,21 +109,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(playerDocProvider, (previous, next) {
-      final data = next.valueOrNull?.data();
-      if (data == null) return;
-      final tier = data['tier'] as String?;
-      if (tier != null) _checkPromotion(tier);
-      // worldChampionCount only exists on the doc once the field has been
-      // incremented at least once (rollover.js sets it via
-      // FieldValue.increment, which creates it on first use) — unlike
-      // tier, which is always present from doc creation. Default the
-      // absent case to 0 so the *first* real win is correctly read as
-      // "0 -> 1" instead of silently skipped as "no baseline yet."
-      final championCount = (data['worldChampionCount'] as num?)?.toInt() ?? 0;
-      _checkWorldChampion(championCount);
-    });
-
     // playerDocProvider is a live Firestore stream, so it stays fresh on
     // its own even while this tab is occluded (not disposed) inside
     // MainScaffold's IndexedStack. leagueRoomMembersProvider is a
@@ -145,6 +159,25 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
           final tier = data['tier'] as String? ?? 'bronze';
           final roomId = data['roomId'] as String?;
           final pendingJoin = data['pendingJoin'] as bool? ?? true;
+
+          // Both only actually change at rollover, so gating on roomId
+          // catches that moment (whether it happened while this screen was
+          // mounted or before the app was even opened this session) without
+          // re-checking on every incidental rebuild in between.
+          if (roomId != _lastCheckedRoomId) {
+            _lastCheckedRoomId = roomId;
+            // worldChampionCount only exists on the doc once the field has
+            // been incremented at least once (rollover.js sets it via
+            // FieldValue.increment, which creates it on first use) — unlike
+            // tier, which is always present from doc creation. Default the
+            // absent case to 0 so the *first* real win is correctly read as
+            // "0 -> 1" instead of silently skipped as "no baseline yet."
+            final championCount = (data['worldChampionCount'] as num?)?.toInt() ?? 0;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _checkWeekResult();
+              _checkWorldChampion(championCount);
+            });
+          }
 
           if (roomId == null || pendingJoin) {
             return _WaitingToJoin(isDark: isDark, tier: tier);

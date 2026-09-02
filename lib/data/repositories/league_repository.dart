@@ -93,6 +93,19 @@ class LeagueRepository {
   Future<DocumentSnapshot<Map<String, dynamic>>> getPlayer(String uid) =>
       _players.doc(uid).get();
 
+  /// This player's recorded result for [weekId] — written by rollover.js
+  /// to players/{uid}/weekHistory/{weekId} at the end of that week (score,
+  /// rank, tier they played in, roomSize, and outcome:
+  /// 'promoted'/'relegated'/'stayed'). A plain single-document read, not a
+  /// query — deliberately, so it needs no Firestore index (an orderBy-based
+  /// "give me the latest one" query does, and fails hard without one).
+  /// Returns null if that week never rolled over for this player (e.g.
+  /// they joined after it ended, or the rollover hasn't run yet).
+  Future<Map<String, dynamic>?> weekResult(String uid, String weekId) async {
+    final doc = await _players.doc(uid).collection('weekHistory').doc(weekId).get();
+    return doc.data();
+  }
+
   /// This player's current-week league score total, summed live from
   /// Firestore (not a client cache) — used to capture a guaranteed-
   /// accurate "before" baseline just prior to submitting today's first
