@@ -92,6 +92,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
       newTier: currentTier ?? history['tier'] as String? ?? 'bronze',
       rank: (history['rank'] as num?)?.toInt() ?? 1,
       roomSize: (history['roomSize'] as num?)?.toInt() ?? 1,
+      score: (history['score'] as num?)?.toInt() ?? 0,
     );
   }
 

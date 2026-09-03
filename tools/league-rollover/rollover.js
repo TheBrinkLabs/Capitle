@@ -79,6 +79,17 @@ function boostedPromotionCount(roomSize, currentDestTierCount) {
   return Math.floor(roomSize * boostedPromotionFraction(currentDestTierCount));
 }
 
+// Gold is the top tier — there's no competition-integrity cost to a
+// promotion into it being "too easy" the way there would be for Bronze->
+// Silver (nothing above it to over-dilute), so it deliberately runs on
+// looser room bounds than the standard target-10/7-14 used everywhere
+// else: consolidate into fewer, livelier rooms instead of spreading a
+// small top-tier population across several thin ones. 17 or fewer stays
+// one room; 18 splits into two 9s (18 is the first pool assignRoomsForTier
+// can't fit under max=17, so the split lands exactly there — not an
+// independently-chosen threshold).
+const GOLD_ROOM_BOUNDS = { target: 15, min: 7, max: 17 };
+
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
@@ -151,13 +162,20 @@ async function main() {
 
       scored.sort((a, b) => (b.score - a.score) || (b.streak - a.streak));
 
-      if (!tierAbove(tier) && scored.length > 0 && scored[0].exists && !scored[0].inactive) {
+      if (!tierAbove(tier) && scored.length > 0 && scored[0].exists && !scored[0].inactive && scored[0].score > 0) {
         topTierCandidates.push({ ...scored[0], roomId: roomDoc.id });
       }
 
-      const promoteCount = !tierAbove(tier) ? 0
+      const rawPromoteCount = !tierAbove(tier) ? 0
         : tier === 'bronze' ? boostedPromotionCount(scored.length, currentSilverCount)
         : boostedPromotionCount(scored.length, currentGoldCount);
+      // A 0-point week is a 0-point week — never a promotion, no matter
+      // how thin the room's competition was. `scored` is sorted by score
+      // descending, so capping at how many actually have points > 0 keeps
+      // the promoted slice exactly the same top-ranked players, just
+      // never reaching past the last one who actually scored.
+      const scoredCount = scored.filter((e) => e.score > 0).length;
+      const promoteCount = Math.min(rawPromoteCount, scoredCount);
       const relegateCount = tierBelow(tier) ? Math.min(zoneSize(scored.length), Math.max(0, scored.length - promoteCount)) : 0;
 
       const batch = db.batch();
@@ -238,7 +256,7 @@ async function main() {
     let roomsCreated = 0;
     for (const tier of TIERS) {
       const pool = incomingPools[tier];
-      const rooms = assignRoomsForTier(pool, nextWeekId);
+      const rooms = assignRoomsForTier(pool, nextWeekId, tier === 'gold' ? GOLD_ROOM_BOUNDS : undefined);
       for (let i = 0; i < rooms.length; i++) {
         const roomId = `${tier}_${nextWeekId}_${i}`;
         await db.collection('leagueRooms').doc(roomId).set({

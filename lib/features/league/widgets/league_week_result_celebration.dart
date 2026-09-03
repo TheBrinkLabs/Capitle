@@ -29,6 +29,7 @@ Future<void> showLeagueWeekResultReveal(
   required String newTier,
   required int rank,
   required int roomSize,
+  required int score,
 }) async {
   switch (outcome) {
     case WeekOutcome.promoted:
@@ -50,6 +51,7 @@ Future<void> showLeagueWeekResultReveal(
       newTier: newTier,
       rank: rank,
       roomSize: roomSize,
+      score: score,
     ),
     transitionBuilder: (context, anim, secondaryAnim, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
@@ -67,6 +69,7 @@ class _WeekResultDialog extends StatefulWidget {
   final String newTier;
   final int rank;
   final int roomSize;
+  final int score;
 
   const _WeekResultDialog({
     required this.outcome,
@@ -74,6 +77,7 @@ class _WeekResultDialog extends StatefulWidget {
     required this.newTier,
     required this.rank,
     required this.roomSize,
+    required this.score,
   });
 
   @override
@@ -106,14 +110,24 @@ class _WeekResultDialogState extends State<_WeekResultDialog> with SingleTickerP
         _ => '${tierLabel(widget.newTier)} League',
       };
 
-  String get _subtitle => switch (widget.outcome) {
-        WeekOutcome.promoted =>
-          'Finished #${widget.rank} of ${widget.roomSize} in ${tierLabel(widget.oldTier)} — welcome to ${tierLabel(widget.newTier)} League!',
-        WeekOutcome.relegated =>
-          "You finished #${widget.rank} of ${widget.roomSize} in ${tierLabel(widget.oldTier)} last week.",
-        WeekOutcome.stayed =>
-          'You finished #${widget.rank} of ${widget.roomSize} last week — go again this week!',
-      };
+  // A 0-point week never results in promotion (the server won't promote
+  // anyone who didn't score — see rollover.js), so this only ever needs
+  // to cover relegated/stayed. Rank doesn't mean much to call out when it
+  // was earned by not playing, so this replaces the rank-based framing
+  // entirely rather than just tacking "(0 points)" onto it.
+  String get _subtitle {
+    if (widget.score == 0) {
+      return "You scored 0 points last week — you're in ${tierLabel(widget.newTier)} League this week.";
+    }
+    return switch (widget.outcome) {
+      WeekOutcome.promoted =>
+        'Finished #${widget.rank} of ${widget.roomSize} in ${tierLabel(widget.oldTier)} — welcome to ${tierLabel(widget.newTier)} League!',
+      WeekOutcome.relegated =>
+        "You finished #${widget.rank} of ${widget.roomSize} in ${tierLabel(widget.oldTier)} last week.",
+      WeekOutcome.stayed =>
+        'You finished #${widget.rank} of ${widget.roomSize} last week — go again this week!',
+    };
+  }
 
   MatteSheen get _sheen => switch (widget.outcome) {
         WeekOutcome.promoted => MatteSheen.gold,

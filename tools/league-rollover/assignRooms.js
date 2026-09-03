@@ -26,23 +26,35 @@ function seededShuffle(array, seed) {
 }
 
 /**
- * Buckets a tier's incoming player pool into rooms of 7-14, distributing
- * any remainder across the first N rooms rather than leaving a trailing
- * undersized room. A pool at or below MAX_SIZE becomes a single room, even
- * if under MIN_SIZE — an accepted, unavoidable cold-start case (never
- * padded by borrowing from another tier, since that would break
+ * Buckets a tier's incoming player pool into rooms sized [min, max],
+ * targeting `target` per room once a pool is big enough to split,
+ * distributing any remainder across the first N rooms rather than leaving
+ * a trailing undersized room. A pool at or below `max` becomes a single
+ * room, even if under `min` — an accepted, unavoidable cold-start case
+ * (never padded by borrowing from another tier, since that would break
  * skill-banding).
+ *
+ * Defaults to Bronze/Silver's bounds (target 10, 7-14 per room). Gold
+ * deliberately uses looser bounds (see rollover.js's GOLD_ROOM_BOUNDS) —
+ * promotion pressure/skill-banding matters less once you're already at
+ * the top tier, so consolidating into fewer, bigger rooms makes for a
+ * livelier competition than spreading thin across several small ones.
  *
  * @param {string[]} incomingUids
  * @param {string} weekId used to seed the shuffle deterministically
+ * @param {{target?: number, min?: number, max?: number}} [bounds]
  * @returns {string[][]} array of rooms (each an array of uids)
  */
-function assignRoomsForTier(incomingUids, weekId) {
+function assignRoomsForTier(incomingUids, weekId, bounds = {}) {
   if (incomingUids.length === 0) return [];
+  const target = bounds.target ?? TARGET_SIZE;
+  const min = bounds.min ?? MIN_SIZE;
+  const max = bounds.max ?? MAX_SIZE;
+
   const shuffled = seededShuffle(incomingUids, weekId);
   const n = shuffled.length;
 
-  if (n <= MAX_SIZE) return [shuffled];
+  if (n <= max) return [shuffled];
 
   const build = (rooms) => {
     const base = Math.floor(n / rooms);
@@ -56,17 +68,17 @@ function assignRoomsForTier(incomingUids, weekId) {
     }
     return out;
   };
-  const isValid = (rooms) => rooms.every((r) => r.length >= MIN_SIZE && r.length <= MAX_SIZE);
+  const isValid = (rooms) => rooms.every((r) => r.length >= min && r.length <= max);
 
-  const guess = Math.max(1, Math.round(n / TARGET_SIZE));
-  // n=20..23 is a genuine gap: 1 room exceeds MAX_SIZE, 2 rooms falls
-  // under MIN_SIZE per room, and no room count in between is legal
-  // either — there is no way to satisfy [MIN_SIZE, MAX_SIZE] for every
-  // room when n falls in [MAX_SIZE+1, 2*MIN_SIZE-1]. Try a small window
-  // of room counts around the estimate; if genuinely none work, fall
-  // back to a single room that runs over MAX_SIZE rather than one that
-  // runs under MIN_SIZE — an oversized room is a much smaller departure
-  // from "one healthy competition" than an undersized one.
+  const guess = Math.max(1, Math.round(n / target));
+  // A gap just above `max` is a genuine possibility: 1 room exceeds max,
+  // 2 rooms falls under min per room, and no room count in between is
+  // legal either — there is no way to satisfy [min, max] for every room
+  // when n falls in [max+1, 2*min-1]. Try a small window of room counts
+  // around the estimate; if genuinely none work, fall back to a single
+  // room that runs over max rather than one that runs under min — an
+  // oversized room is a much smaller departure from "one healthy
+  // competition" than an undersized one.
   for (const candidate of [guess, guess - 1, guess + 1, guess - 2, guess + 2]) {
     if (candidate < 1) continue;
     const rooms = build(candidate);
