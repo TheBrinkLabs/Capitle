@@ -73,9 +73,23 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   // tier (which never changes on a 'stayed' outcome, missing that case
   // entirely). Firestore weekHistory is the actual source of truth for
   // what happened; this just decides when it's worth checking.
+  // How long after Monday's rollover the reveal is still considered
+  // timely. Deliberately NOT trying to detect "this is a reinstall" —
+  // that's unreliable (a reinstall that restores local data via Android's
+  // own backup looks identical to normal continued use). A flat freshness
+  // window sidesteps the question entirely: whatever the reason someone's
+  // first check of the week happens to land outside it — reinstalled,
+  // hadn't opened the app in days, whatever — showing them a "you were
+  // promoted" moment for something that happened days ago reads as
+  // wrong regardless of why, so just don't. They'll get a timely one at
+  // the next real rollover; their current tier is always visible in the
+  // tier badge either way, this only gates the celebration/recap dialog.
+  static const _revealFreshnessWindow = Duration(hours: 48);
+
   Future<void> _checkWeekResult() async {
     final uid = ref.read(uidProvider);
     if (uid == null) return;
+    if (DateTime.now().toUtc().difference(currentWeekStartUtc()) > _revealFreshnessWindow) return;
     final previousWeekId = isoWeekId(currentWeekStartUtc().subtract(const Duration(days: 7)));
     final history = await ref.read(leagueRepositoryProvider).weekResult(uid, previousWeekId);
     if (history == null || !mounted) return;
