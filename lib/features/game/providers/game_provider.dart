@@ -9,6 +9,8 @@ import '../../../core/utils/notification_service.dart';
 import '../../../core/utils/league_scoring.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/league_repository.dart';
+import '../../../data/models/pending_score.dart';
+import '../../../core/utils/pending_score_flush.dart';
 
 final guessCountryGameProvider =
     NotifierProvider<GameNotifier, GameState?>(() => GameNotifier(GameMode.guessCountry));
@@ -189,23 +191,44 @@ class GameNotifier extends Notifier<GameState?> {
     // crash the actual game-over flow. No-ops silently if the player isn't
     // signed in yet (Firebase unavailable, or somehow reached this point
     // before profile setup).
-    try {
-      if (uid != null) {
-        await ref.read(leagueRepositoryProvider).submitGameScore(
-              uid: uid,
-              mode: mode,
-              won: won,
-              guessesUsed: guessesUsed,
-              score: score,
-            );
+    //
+    // Queued locally BEFORE the network attempt (not just on failure) so
+    // an app kill mid-attempt can't lose it either — this is what actually
+    // happened to a real player once: a network hiccup silently ate a
+    // whole morning's scores with nothing to retry, since the old code
+    // only ever tried once and logged (invisibly, in release) on failure.
+    // Removed again once submitGameScore is confirmed to have landed.
+    if (uid != null) {
+      final playedAt = DateTime.now().toUtc();
+      final pendingRepo = ref.read(pendingScoreRepositoryProvider);
+      await pendingRepo.enqueue(PendingScore(
+        mode: mode, won: won, guessesUsed: guessesUsed, score: score, playedAt: playedAt,
+      ));
+      try {
+        final leagueRepo = ref.read(leagueRepositoryProvider);
+        await leagueRepo.submitGameScore(
+          uid: uid,
+          mode: mode,
+          won: won,
+          guessesUsed: guessesUsed,
+          score: score,
+          playedAt: playedAt,
+        );
         // Sync the just-updated streak too, now that recordGame() above
         // has already recalculated it — this is what the leaderboard and
-        // rollover tie-break read.
+        // rollover tie-break read. Always the CURRENT streak, never a
+        // value from the pending queue — streak only ever moves forward,
+        // so replaying an old queued entry's streak here could regress it
+        // if newer games have already landed since.
         final streak = ref.read(statsProvider).currentStreak;
-        await ref.read(leagueRepositoryProvider).syncStreak(uid: uid, streak: streak);
+        await leagueRepo.syncStreak(uid: uid, streak: streak);
+        await pendingRepo.remove(PendingScore(mode: mode, won: won, guessesUsed: guessesUsed, score: score, playedAt: playedAt).id);
+        // Connectivity just proved itself — a good moment to also clear
+        // out anything still stuck from an earlier session.
+        await flushPendingScores(leagueRepo: leagueRepo, pendingRepo: pendingRepo, uid: uid);
+      } catch (e, st) {
+        debugPrint('League score submission failed (non-fatal, queued for retry): $e\n$st');
       }
-    } catch (e, st) {
-      debugPrint('League score submission failed (non-fatal): $e\n$st');
     }
 
     // If that was the last active mode for today, re-arm the streak-saver

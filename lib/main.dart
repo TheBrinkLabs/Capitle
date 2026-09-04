@@ -13,6 +13,9 @@ import 'core/utils/aluna_availability_service.dart';
 import 'core/services/firebase_bootstrap.dart';
 import 'core/services/auth_service.dart';
 import 'core/utils/route_observer.dart';
+import 'core/utils/pending_score_flush.dart';
+import 'data/repositories/auth_repository.dart';
+import 'data/repositories/league_repository.dart';
 import 'features/home/widgets/banner_ad_widget.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/home/screens/splash_screen.dart';
@@ -95,7 +98,23 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _rescheduleNotifications();
+      _flushPendingScores();
     });
+  }
+
+  // Retries any league score submissions that failed to land in a
+  // previous session — by far the most common way a queued entry
+  // actually gets a second chance, since it covers "closed the app while
+  // offline" and "app got killed mid-attempt" alike. Silently no-ops if
+  // the player isn't signed in yet or the queue is empty.
+  Future<void> _flushPendingScores() async {
+    final uid = ref.read(uidProvider);
+    if (uid == null) return;
+    await flushPendingScores(
+      leagueRepo: ref.read(leagueRepositoryProvider),
+      pendingRepo: ref.read(pendingScoreRepositoryProvider),
+      uid: uid,
+    );
   }
 
   // Recomputes whether today's active puzzles are already finished, and

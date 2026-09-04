@@ -122,15 +122,23 @@ class LeagueRepository {
   /// rules forbid update/delete — a duplicate submission for the same
   /// day+mode is rejected by Firestore itself rather than needing app-level
   /// dedup logic.
+  ///
+  /// [playedAt] defaults to now, but a retried submission (see
+  /// PendingScoreRepository) must pass the ORIGINAL time the game was
+  /// actually played — otherwise a score earned late one night that only
+  /// manages to submit the next morning would get filed under the wrong
+  /// day/week entirely.
   Future<void> submitGameScore({
     required String uid,
     required GameMode mode,
     required bool won,
     required int guessesUsed,
     required int score,
+    DateTime? playedAt,
   }) async {
-    final weekId = currentWeekId();
-    final dateKey = _dateKeyUtc(DateTime.now().toUtc());
+    final playedAtUtc = (playedAt ?? DateTime.now()).toUtc();
+    final weekId = isoWeekId(playedAtUtc);
+    final dateKey = _dateKeyUtc(playedAtUtc);
     final modeDocId = '${mode.name}_$dateKey';
 
     await _players
