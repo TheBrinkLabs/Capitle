@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:unity_levelplay_mediation/unity_levelplay_mediation.dart';
 import '../theme/app_theme.dart';
 import '../utils/ad_service.dart';
-import '../utils/vungle_banner_ad.dart';
-import '../utils/meta_banner_ad.dart';
 import 'aluna_mrec_ad.dart';
 
 /// A "watch an ad for a clue" screen modelled on Wordle's own — an ad
@@ -13,13 +12,13 @@ import 'aluna_mrec_ad.dart';
 /// behaviour is controlled by the SDK and the ad creative being served,
 /// not by us — there's no way to guarantee a short, predictable unlock
 /// time with one. Embedding a fixed-size ad in our own screen keeps that
-/// fully in our control instead: Vungle's MREC first, Meta's MREC second
-/// (both bigger, higher-value formats than a plain banner), and — since
-/// display ads have no minimum-watch guarantee either way — the internal
+/// fully in our control instead: LevelPlay's (Vungle-mediated) MREC —
+/// a bigger, higher-value format than a plain banner — and, since
+/// display ads have no minimum-watch guarantee either way, the internal
 /// Aluna house ad as a real final fallback instead of a blank placeholder,
 /// so there's always something worth looking at during the watch timer
-/// even when neither real network fills. Plus a short minimum watch timer
-/// we own throughout, independent of whichever slot ends up showing.
+/// even when the real network doesn't fill. Plus a short minimum watch
+/// timer we own throughout, independent of whichever slot ends up showing.
 Future<void> showClueAdScreen(BuildContext context) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute(
@@ -29,8 +28,6 @@ Future<void> showClueAdScreen(BuildContext context) {
   );
 }
 
-enum _ClueAdProvider { vungleMrec, metaMrec }
-
 class _ClueAdScreen extends StatefulWidget {
   const _ClueAdScreen();
 
@@ -38,24 +35,22 @@ class _ClueAdScreen extends StatefulWidget {
   State<_ClueAdScreen> createState() => _ClueAdScreenState();
 }
 
-class _ClueAdScreenState extends State<_ClueAdScreen> {
+class _ClueAdScreenState extends State<_ClueAdScreen> implements LevelPlayBannerAdViewListener {
   // Minimum time the ad must be visible before "Get Clue" is tappable —
   // display ads have no SDK-level "reward earned" signal the way a
   // rewarded video does, so this is a product-level stand-in: give the
   // ad a real chance to actually be seen rather than letting the button
   // be tapped the instant the screen opens.
-  static const _minWatchSeconds = 7;
+  static const _minWatchSeconds = 8;
   static const _providerTimeout = Duration(seconds: 6);
-  static const _providers = [_ClueAdProvider.vungleMrec, _ClueAdProvider.metaMrec];
+
+  final _mrecKey = GlobalKey<LevelPlayBannerAdViewState>();
 
   bool _adFailed = false;
   bool _canContinue = false;
-  int _providerIndex = 0;
   int _secondsRemaining = _minWatchSeconds;
   Timer? _countdownTimer;
   Timer? _loadTimeoutTimer;
-
-  _ClueAdProvider get _currentProvider => _providers[_providerIndex];
 
   @override
   void initState() {
@@ -80,12 +75,7 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
 
   void _onProviderFailed() {
     if (!mounted || _countdownTimer != null) return;
-    if (_providerIndex < _providers.length - 1) {
-      setState(() => _providerIndex++);
-      _startProviderTimeout();
-      return;
-    }
-    // Both real networks struck out — the internal Aluna house ad is a
+    // The real network struck out — the internal Aluna house ad is a
     // real fallback, not a blank placeholder, so it still gets the same
     // minimum-watch countdown as a real ad rather than letting the user
     // through instantly.
@@ -111,31 +101,46 @@ class _ClueAdScreenState extends State<_ClueAdScreen> {
   }
 
   Widget _buildProviderAd() {
-    switch (_currentProvider) {
-      case _ClueAdProvider.vungleMrec:
-        return VungleBannerAd(
-          key: const ValueKey('vungle_mrec'),
-          placementId: adService.vungleMrecPlacementId,
-          size: VungleBannerSize.mrec,
-          onLoad: _startCountdown,
-          onFailed: (errorCode, errorMessage) {
-            debugPrint('Clue ad (Vungle MREC) failed to load: $errorCode $errorMessage');
-            _onProviderFailed();
-          },
-        );
-      case _ClueAdProvider.metaMrec:
-        return MetaBannerAd(
-          key: const ValueKey('meta_mrec'),
-          placementId: adService.metaMrecPlacementId,
-          size: MetaBannerSize.mrec,
-          onLoad: _startCountdown,
-          onFailed: (errorCode, errorMessage) {
-            debugPrint('Clue ad (Meta MREC) failed to load: $errorCode $errorMessage');
-            _onProviderFailed();
-          },
-        );
-    }
+    return LevelPlayBannerAdView(
+      key: _mrecKey,
+      adUnitId: adService.levelPlayMrecAdUnitId,
+      adSize: LevelPlayAdSize.MEDIUM_RECTANGLE,
+      listener: this,
+      onPlatformViewCreated: () => _mrecKey.currentState?.loadAd(),
+    );
   }
+
+  // ── LevelPlayBannerAdViewListener ────────────────────────────────────
+
+  @override
+  void onAdLoaded(LevelPlayAdInfo adInfo) => _startCountdown();
+
+  @override
+  void onAdLoadFailed(LevelPlayAdError error) {
+    debugPrint('Clue ad (LevelPlay MREC) failed to load: $error');
+    _onProviderFailed();
+  }
+
+  @override
+  void onAdDisplayed(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdDisplayFailed(LevelPlayAdInfo adInfo, LevelPlayAdError error) {
+    debugPrint('Clue ad (LevelPlay MREC) failed to display: $error');
+    _onProviderFailed();
+  }
+
+  @override
+  void onAdClicked(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdExpanded(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdCollapsed(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdLeftApplication(LevelPlayAdInfo adInfo) {}
 
   @override
   Widget build(BuildContext context) {

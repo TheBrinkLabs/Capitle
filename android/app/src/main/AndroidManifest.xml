@@ -2,9 +2,9 @@
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Meta Audience Network only makes ad requests while actually
-         connected when this is granted; without it, it'll still work
-         but may attempt requests with no network. -->
+    <!-- Ad SDKs (Unity Ads, LevelPlay/Vungle) only make ad requests
+         while actually connected when this is granted; without it,
+         they'll still work but may attempt requests with no network. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>

@@ -117,6 +117,17 @@ class LeagueRepository {
     return (agg.getSum('score') ?? 0).round();
   }
 
+  /// Every score doc submitted for [uid] in [weekId] — the only
+  /// server-side record of "what did I play, and did I win" that exists
+  /// (everything else lives purely in local SharedPreferences). Used to
+  /// restore day-records/streaks after a reinstall and to guard against
+  /// replaying a mode already played today — see progress_restore.dart.
+  /// A plain collection read, not a query, so it needs no index.
+  Future<List<Map<String, dynamic>>> fetchScoresForWeek(String uid, String weekId) async {
+    final snap = await _players.doc(uid).collection('scores').doc(weekId).collection('modes').get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
   /// Writes this game's result to players/{uid}/scores/{weekId}/modes/{modeDocId}.
   /// The document ID is deterministic (mode + today's date) and security
   /// rules forbid update/delete — a duplicate submission for the same

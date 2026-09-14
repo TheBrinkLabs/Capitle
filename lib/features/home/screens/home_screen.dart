@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/game_models.dart';
-import '../../../data/models/outline_assets.dart';
 import '../../../data/repositories/game_repository.dart';
 import '../../../core/utils/providers.dart';
 import '../../game/screens/game_screen.dart';
@@ -62,6 +61,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ))
         .toList();
 
+    // Captured now, not recomputed after the ad finishes — a rewarded ad
+    // can take a while, and if it finishes on the other side of a
+    // midnight rollover, "yesterday" would otherwise have moved on to the
+    // day the user spent watching it, freezing the wrong one.
+    final repairDateKey = repo.yesterdayKey;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       showStreakBreakDialog(
@@ -69,7 +74,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         broken: broken,
         onWatchAd: () async {
           for (final mode in repairableModes) {
-            await ref.read(statsProvider.notifier).repairStreak(mode);
+            await ref.read(statsProvider.notifier).repairStreak(mode, dateKey: repairDateKey);
           }
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -155,9 +160,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               Expanded(
                                 flex: 1,
                                 child: _MiniStat(
-                                  value: '${stats.totalScore}',
+                                  // This week's score, not lifetime total
+                                  // (that's on the Stats screen instead) —
+                                  // resets each Monday, matching the league's
+                                  // own weekly cadence.
+                                  value: '${repo.weeklyScore()}',
                                   icon: '⭐',
-                                  label: 'SCORE',
+                                  label: 'WEEK SCORE',
                                   color: AppColors.blue,
                                   isDark: isDark,
                                 ),
@@ -271,6 +280,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       repo: repo,
                       completed: dayRecord.completedMode(mode),
                       won: dayRecord.wonMode(mode),
+                      score: dayRecord.scoreForMode(mode),
                       isDark: isDark,
                       showContinent: settings.showContinentHint,
                       onTap: () => _openGame(context, mode),
@@ -597,14 +607,15 @@ class _PuzzleCard extends StatelessWidget {
   final GameRepository repo;
   final bool completed;
   final bool won;
+  final int score;
   final bool isDark;
   final bool showContinent;
   final VoidCallback onTap;
 
   const _PuzzleCard({
     required this.mode, required this.repo, required this.completed,
-    required this.won, required this.isDark, required this.showContinent,
-    required this.onTap,
+    required this.won, required this.score, required this.isDark,
+    required this.showContinent, required this.onTap,
   });
 
   @override
@@ -651,16 +662,13 @@ class _PuzzleCard extends StatelessWidget {
                 ],
               ),
               child: Center(
+                // Flag/Outline always show a generic placeholder here,
+                // played or not — this list is score + right/wrong only
+                // now, never the actual puzzle content.
                 child: isOutline
-                    ? ColorFiltered(
-                        colorFilter: const ColorFilter.mode(Colors.white70, BlendMode.srcIn),
-                        child: Image.asset(
-                          kOutlineAssetPath[puzzle.entry.country]!,
-                          fit: BoxFit.contain,
-                        ),
-                      )
+                    ? const Icon(Icons.public_rounded, color: Colors.white70, size: 26)
                     : Text(
-                        isFlag ? puzzle.entry.flagEmoji : mode.emoji,
+                        isFlag ? '🏳️' : mode.emoji,
                         style: TextStyle(fontSize: isFlag ? 26 : 22),
                       ),
               ),
@@ -670,22 +678,23 @@ class _PuzzleCard extends StatelessWidget {
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(mode.label.toUpperCase(), style: const TextStyle(
-                  fontSize: 9, letterSpacing: 2,
+              Text(mode.label.toUpperCase(), style: TextStyle(
+                  fontSize: completed ? 9 : 13, letterSpacing: 2,
                   fontWeight: FontWeight.w600, color: AppColors.teal)),
-              const SizedBox(height: 2),
-              Text(
-                // Never reveal the answer in text — flag/outline show a
-                // neutral prompt since their icon already is the puzzle.
-                isOutline
-                    ? 'Guess the shape'
-                    : puzzle.heroText,
-                style: TextStyle(fontFamily: 'Outfit', fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? AppColors.textDark : AppColors.textLight,
-                    letterSpacing: -0.5),
-              ),
-              if (showContinent && !isFlag && !isOutline) ...[
+              if (completed) ...[
+                const SizedBox(height: 2),
+                // Score, not the answer — never reveal what the puzzle
+                // actually was here; the right/wrong indicator (trailing
+                // icon below) already shows the outcome.
+                Text(
+                  '$score pts',
+                  style: TextStyle(fontFamily: 'Outfit', fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? AppColors.textDark : AppColors.textLight,
+                      letterSpacing: -0.5),
+                ),
+              ],
+              if (showContinent && !isFlag && !isOutline && completed) ...[
                 const SizedBox(height: 1),
                 Text(puzzle.entry.continent,
                     style: TextStyle(fontSize: 11, color: textMuted)),

@@ -7,16 +7,28 @@
 -keep class io.flutter.plugins.**  { *; }
 -dontwarn io.flutter.embedding.**
 
-# Unity Ads (rewarded only — see ad_service.dart)
+# Unity Ads, Vungle (Liftoff Monetize), and Meta Audience Network SDKs —
+# all mediated through Unity LevelPlay (banner, MREC, streak-repair
+# rewarded/interstitial — see ad_service.dart) rather than called
+# directly.
 -keep class com.unity3d.ads.** { *; }
 -keep class com.unity3d.services.** { *; }
+-keep class com.vungle.ads.** { *; }
+-keep class com.facebook.ads.** { *; }
+-keep class com.unity3d.mediation.** { *; }
+-keep class com.ironsource.** { *; }
 -dontwarn com.unity3d.ads.**
 -dontwarn com.unity3d.services.**
-
-# Meta Audience Network (banner/MREC, via our own native bridge in
-# android/app/.../meta_ads/ — no Flutter plugin involved)
--keep class com.facebook.ads.** { *; }
+-dontwarn com.vungle.ads.**
 -dontwarn com.facebook.ads.**
+-dontwarn com.unity3d.mediation.**
+-dontwarn com.ironsource.**
+
+# Mintegral SDK — also mediated through LevelPlay. Account is under
+# review, code-only for now, so this keep rule matters once approved,
+# not before. (PubMatic and Pangle removed — see build.gradle.kts.)
+-keep class com.mbridge.** { *; }
+-dontwarn com.mbridge.**
 
 # Firebase / Google Play Services
 -keep class com.google.firebase.** { *; }

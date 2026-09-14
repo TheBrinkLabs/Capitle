@@ -8,9 +8,12 @@ import '../../../data/repositories/league_repository.dart';
 import '../../../data/models/game_models.dart';
 import '../../../features/game/screens/game_screen.dart';
 import '../../../features/profile/providers/player_profile_provider.dart';
+import '../../../features/stats/providers/stats_provider.dart';
 import '../../../main_scaffold.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/device_id_service.dart';
+import '../../../core/utils/progress_restore.dart';
+import '../../../core/utils/providers.dart';
 
 /// How this screen was reached, which decides what happens once setup
 /// finishes (whether Skip/Continue was chosen either way — this never
@@ -97,6 +100,30 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           // Non-fatal — they still keep whichever nickname/country was
           // already showing; _finish below still restores the right uid.
         }
+
+        // Day-records/streaks are local-only otherwise (see
+        // progress_restore.dart) — this is the ONLY moment the real uid
+        // is known to have just switched to a pre-existing account, so
+        // it's the one place this needs triggering explicitly. The app's
+        // normal startup restore (main.dart) runs once, too early to see
+        // this switch — it fires before the user has gone through this
+        // screen at all on a fresh install.
+        try {
+          final gameRepo = ref.read(gameRepositoryProvider);
+          final leagueRepo = ref.read(leagueRepositoryProvider);
+          await reconcileTodayFromServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+          await restoreHistoryIfNeeded(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid, force: true);
+          ref.invalidate(statsProvider);
+          // Otherwise Home shows the restored streak but League keeps
+          // showing whatever was last synced before the reinstall — see
+          // syncRestoredStreakToServer's own doc comment.
+          await syncRestoredStreakToServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+        } catch (_) {
+          // Non-fatal — worst case the player keeps whatever local state
+          // this fresh install already had; nothing here should block
+          // finishing setup.
+        }
+
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Welcome back — restoring your previous profile…')),

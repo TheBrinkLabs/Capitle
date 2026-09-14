@@ -73,11 +73,18 @@ class GameRepository {
     }).toList();
   }
 
-  /// Freezes yesterday for [mode], repairing the streak without counting
-  /// yesterday as an extra played day. Call this only after a rewarded ad
+  /// Freezes [dateKey] for [mode], repairing the streak without counting
+  /// that day as an extra played day. Call this only after a rewarded ad
   /// has actually been watched to completion.
-  Future<void> repairStreakForMode(GameMode mode) async {
-    final record = loadDayRecord(yesterdayKey).withFrozenMode(mode);
+  ///
+  /// [dateKey] must be the SAME "yesterday" that [modesWithRepairableStreak]
+  /// used to decide this mode was repairable, captured up front by the
+  /// caller — not recomputed here from DateTime.now(). Rewarded ads can
+  /// take a while to actually finish; recomputing "yesterday" at that
+  /// point would freeze the wrong day for anyone who watches the ad on
+  /// the other side of a midnight rollover from when the offer was made.
+  Future<void> repairStreakForMode(GameMode mode, {required String dateKey}) async {
+    final record = loadDayRecord(dateKey).withFrozenMode(mode);
     await saveDayRecord(record);
   }
 
@@ -251,6 +258,25 @@ class GameRepository {
 
   Future<void> saveDayRecord(DayRecord record) async {
     await _prefs.setString('$_prefDayRecord${record.dateKey}', jsonEncode(record.toJson()));
+  }
+
+  /// Score summed across every mode's completed games since this local
+  /// calendar Monday (inclusive of today) — the Home screen's "this
+  /// week" figure, distinct from PlayerStats.totalScore (lifetime total,
+  /// shown on the Stats screen instead).
+  int weeklyScore() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    var total = 0;
+    for (var i = 0; i <= today.difference(monday).inDays; i++) {
+      final day = monday.add(Duration(days: i));
+      final key = '${day.year.toString().padLeft(4, '0')}-'
+          '${day.month.toString().padLeft(2, '0')}-'
+          '${day.day.toString().padLeft(2, '0')}';
+      total += loadDayRecord(key).totalScoreFor(GameMode.values);
+    }
+    return total;
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────

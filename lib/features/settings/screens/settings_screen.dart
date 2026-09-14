@@ -9,6 +9,7 @@ import '../../../core/utils/package_info_provider.dart';
 import '../../onboarding/screens/onboarding_screen.dart';
 import '../../onboarding/screens/profile_setup_screen.dart';
 import '../../../core/utils/notification_service.dart';
+import '../../../core/utils/progress_restore.dart';
 import '../../../core/utils/providers.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/repositories/league_repository.dart';
@@ -801,6 +802,24 @@ class _GoogleSignInRowState extends ConsumerState<_GoogleSignInRow> {
         } catch (_) {
           // Non-fatal — the account itself is still correctly switched;
           // only the local display might lag until next Firestore sync.
+        }
+
+        // Day-records/streaks are local-only otherwise (see
+        // progress_restore.dart) — this is the ONLY moment the real uid
+        // is known to have just switched to a pre-existing account, so
+        // it's the one place this needs triggering explicitly.
+        try {
+          final gameRepo = ref.read(gameRepositoryProvider);
+          final leagueRepo = ref.read(leagueRepositoryProvider);
+          await reconcileTodayFromServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+          await restoreHistoryIfNeeded(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid, force: true);
+          ref.invalidate(statsProvider);
+          // Otherwise Home shows the restored streak but League keeps
+          // showing whatever was last synced before the reinstall.
+          await syncRestoredStreakToServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+        } catch (_) {
+          // Non-fatal — worst case they keep whatever local state this
+          // device already had.
         }
       }
 

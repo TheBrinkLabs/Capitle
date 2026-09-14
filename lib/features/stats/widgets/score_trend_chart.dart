@@ -4,8 +4,6 @@ import '../../../core/widgets/app_effects.dart';
 import '../../league/providers/week_history_provider.dart';
 import '../../league/widgets/league_tier_badge.dart';
 
-const _maxWeeklyScore = 600;
-
 class ScoreTrendChart extends StatelessWidget {
   final List<WeekHistoryEntry> weeks;
   final bool isDark;
@@ -15,6 +13,16 @@ class ScoreTrendChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
+    // Scaled relative to the highest score in the displayed weeks (not a
+    // fixed ceiling) — a fixed max either clips real scores flat at 100%
+    // (this was the bug: 600 against real weekly totals in the
+    // thousands meant every bar clamped to full height) or, if set high
+    // enough to never clip, makes normal weeks look unimpressively
+    // short. Relative scaling always shows genuine week-to-week
+    // differences regardless of how scoring norms shift over time.
+    final maxScore = weeks.isEmpty
+        ? 1
+        : weeks.map((w) => w.score).reduce((a, b) => a > b ? a : b).clamp(1, 1 << 30);
 
     return SizedBox(
       height: 140,
@@ -23,7 +31,7 @@ class ScoreTrendChart extends StatelessWidget {
         children: [
           for (int i = 0; i < weeks.length; i++) ...[
             if (i > 0) const SizedBox(width: 6),
-            Expanded(child: _WeekBar(entry: weeks[i], isDark: isDark)),
+            Expanded(child: _WeekBar(entry: weeks[i], maxScore: maxScore, isDark: isDark)),
           ],
           if (weeks.isEmpty)
             Expanded(
@@ -39,13 +47,14 @@ class ScoreTrendChart extends StatelessWidget {
 
 class _WeekBar extends StatelessWidget {
   final WeekHistoryEntry entry;
+  final int maxScore;
   final bool isDark;
-  const _WeekBar({required this.entry, required this.isDark});
+  const _WeekBar({required this.entry, required this.maxScore, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
-    final fraction = (entry.score / _maxWeeklyScore).clamp(0.0, 1.0);
+    final fraction = (entry.score / maxScore).clamp(0.0, 1.0);
     final color = tierColor(entry.tier);
 
     return Column(mainAxisAlignment: MainAxisAlignment.end, children: [

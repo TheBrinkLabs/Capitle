@@ -63,34 +63,18 @@ class StatsScreen extends ConsumerWidget {
                 isDark: isDark,
                 sheen: MatteSheen.teal,
                 borderRadius: 20,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(children: [
-                      TabularNumber('${stats.bestStreak}', style: const TextStyle(
-                        fontFamily: 'Outfit', fontSize: 48,
-                        fontWeight: FontWeight.w800, color: AppColors.yellow,
-                        letterSpacing: -2, height: 1,
-                      )),
-                      Text('BEST STREAK 🔥', style: TextStyle(
-                        fontSize: 9, letterSpacing: 2.5,
-                        color: textMuted, fontWeight: FontWeight.w500,
-                      )),
-                    ]),
-                    Container(width: 1, height: 50,
-                        color: Colors.white.withOpacity(0.08)),
-                    Column(children: [
-                      TabularNumber('${stats.totalPlayed}', style: TextStyle(
-                        fontFamily: 'Outfit', fontSize: 48,
-                        fontWeight: FontWeight.w800, color: textColor,
-                        letterSpacing: -2, height: 1,
-                      )),
-                      Text('GAMES PLAYED', style: TextStyle(
-                        fontSize: 9, letterSpacing: 2.5,
-                        color: textMuted, fontWeight: FontWeight.w500,
-                      )),
-                    ]),
+                    Expanded(child: _HeroStat(value: '${stats.bestStreak}', label: 'BEST STREAK 🔥', color: AppColors.yellow, textMuted: textMuted)),
+                    Container(width: 1, height: 50, color: Colors.white.withOpacity(0.08)),
+                    Expanded(child: _HeroStat(value: '${stats.totalPlayed}', label: 'GAMES PLAYED', color: textColor, textMuted: textMuted)),
+                    Container(width: 1, height: 50, color: Colors.white.withOpacity(0.08)),
+                    // Lifetime total — the Home screen shows this week's
+                    // score instead (resets each Monday); this is the one
+                    // place the all-time figure lives.
+                    Expanded(child: _HeroStat(value: '${stats.totalScore}', label: 'TOTAL SCORE', color: AppColors.blue, textMuted: textMuted)),
                   ],
                 ),
               ),
@@ -286,6 +270,43 @@ class _ModeStreakCard extends StatelessWidget {
           ), maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
+    );
+  }
+}
+
+// ── Hero Stat (one column of the BEST STREAK/GAMES PLAYED/TOTAL SCORE row) ──
+
+class _HeroStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color color;
+  final Color textMuted;
+
+  const _HeroStat({
+    required this.value, required this.label,
+    required this.color, required this.textMuted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Shrinks automatically once a value gets long enough (thousands+)
+        // that a fixed 48px would risk overflowing this now-3-way row.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: TabularNumber(value, style: TextStyle(
+            fontFamily: 'Outfit', fontSize: 40,
+            fontWeight: FontWeight.w800, color: color,
+            letterSpacing: -1.5, height: 1,
+          )),
+        ),
+        Text(label, style: TextStyle(
+          fontSize: 9, letterSpacing: 2.5,
+          color: textMuted, fontWeight: FontWeight.w500,
+        ), maxLines: 1, overflow: TextOverflow.ellipsis),
+      ],
     );
   }
 }

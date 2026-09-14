@@ -45,13 +45,19 @@ final weekHistoryProvider = FutureProvider.autoDispose<List<WeekHistoryEntry>>((
   final uid = ref.watch(uidProvider);
   if (uid == null) return [];
 
+  // Plain collection read, no orderBy — an orderBy(FieldPath.documentId)
+  // query needs a composite index that was never created, and fails hard
+  // with FAILED_PRECONDITION without one (same class of bug already fixed
+  // in LeagueRepository.weekResult). weekHistory is bounded to one doc per
+  // week the rollover has ever run for this player, so sorting/limiting
+  // client-side is cheap and needs no Firestore index at all.
   final snap = await FirebaseFirestore.instance
       .collection('players')
       .doc(uid)
       .collection('weekHistory')
-      .orderBy(FieldPath.documentId, descending: true)
-      .limit(12)
       .get();
 
-  return snap.docs.map(WeekHistoryEntry.fromDoc).toList().reversed.toList();
+  final entries = snap.docs.map(WeekHistoryEntry.fromDoc).toList()
+    ..sort((a, b) => a.weekId.compareTo(b.weekId)); // "YYYY-Www" sorts correctly as a string
+  return entries.length > 12 ? entries.sublist(entries.length - 12) : entries;
 });

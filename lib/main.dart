@@ -14,10 +14,12 @@ import 'core/services/firebase_bootstrap.dart';
 import 'core/services/auth_service.dart';
 import 'core/utils/route_observer.dart';
 import 'core/utils/pending_score_flush.dart';
+import 'core/utils/progress_restore.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/league_repository.dart';
 import 'features/home/widgets/banner_ad_widget.dart';
 import 'features/settings/providers/settings_provider.dart';
+import 'features/stats/providers/stats_provider.dart';
 import 'features/home/screens/splash_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/onboarding/screens/league_announcement_screen.dart';
@@ -99,7 +101,30 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _rescheduleNotifications();
       _flushPendingScores();
+      _restoreProgressFromServer();
     });
+  }
+
+  // Day-records/streaks live purely in local SharedPreferences — a
+  // reinstall (or a fresh device) loses them entirely, and with nothing
+  // server-side to check, a reinstalled app would also let you replay a
+  // mode you'd already played today. Firestore's league score docs
+  // (players/{uid}/scores/{weekId}/modes) are the only durable record of
+  // "what did I play, did I win" that exists, so they're used here to
+  // patch today's record (replay guard) and, on a genuinely empty local
+  // install, rebuild recent history (streak restore) — see
+  // progress_restore.dart for the two functions' exact scope/limits.
+  Future<void> _restoreProgressFromServer() async {
+    final uid = ref.read(uidProvider);
+    if (uid == null) return;
+    final gameRepo = ref.read(gameRepositoryProvider);
+    final leagueRepo = ref.read(leagueRepositoryProvider);
+    final todayChanged = await reconcileTodayFromServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+    final historyRestored = await restoreHistoryIfNeeded(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+    if (todayChanged || historyRestored) {
+      ref.invalidate(statsProvider);
+      await syncRestoredStreakToServer(gameRepo: gameRepo, leagueRepo: leagueRepo, uid: uid);
+    }
   }
 
   // Retries any league score submissions that failed to land in a

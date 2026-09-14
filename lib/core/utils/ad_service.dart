@@ -1,6 +1,6 @@
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:unity_ads_plugin/unity_ads_plugin.dart';
+import 'package:unity_levelplay_mediation/unity_levelplay_mediation.dart';
 
 /// Rewarded ad "slot" — currently just streak repair (fires at most once
 /// a day). The clue-reveal ad uses an embedded banner instead (see
@@ -10,200 +10,157 @@ import 'package:unity_ads_plugin/unity_ads_plugin.dart';
 /// predictable unlock time a rewarded video can't guarantee.
 enum RewardedAdSlot { streakRepair }
 
-/// Unity handles rewarded ads (streak repair) and is the primary banner
-/// provider (both the persistent nav banner and the clue-reveal embed).
-/// Its interstitial format was dropped (felt indistinguishable from a
-/// rewarded ad with no reliable way to keep it short) — that one still
-/// goes nowhere. Meta Audience Network (see meta_banner_ad.dart, wired up
-/// via a native platform channel since it has no standalone Flutter
-/// plugin) is the nav banner's second provider in the waterfall — see
-/// banner_ad_widget.dart. Vungle (Liftoff Monetize, also wired up via a
-/// native platform channel — no standalone Flutter plugin either) is the
-/// clue-reveal MREC's primary provider and the nav banner's third
-/// provider, plus an interstitial being trialled for streak repair
-/// alongside Unity's rewarded video.
-class AdService {
-  static const _unityGameId = '800112186';
-  static const _rewardedPlacementId = 'Rewarded_Android';
-  static const _bannerPlacementId = 'Banner_Android';
+/// Unity LevelPlay mediates everything now: Unity Ads, Vungle/Liftoff
+/// Monetize, and Meta Audience Network all bid against each other for
+/// the same ad units — the nav banner (see banner_ad_widget.dart), the
+/// clue-reveal MREC, streak-repair's rewarded video, and its fallback
+/// interstitial if the rewarded ad has nothing. Unity used to be called
+/// directly via `unity_ads_plugin`; folded into LevelPlay so it competes
+/// in the same real-time auction as everything else instead of always
+/// getting first refusal in a fixed waterfall slot regardless of who'd
+/// actually pay more for this request.
+class AdService implements LevelPlayInitListener {
+  // Unity LevelPlay — app-level key from the LevelPlay dashboard, plus
+  // one ad-unit id per format. Unity Ads, Vungle, and Meta are each
+  // configured as mediated networks behind these ad units in the
+  // dashboard, mapped to their existing accounts (Unity Game ID
+  // 800112186, Vungle App ID 6a8b5a2fa58d1846183b4aae, Meta App ID
+  // 27937713359198663).
+  static const _levelPlayAppKey = '27e98373d';
+  static const _levelPlayBannerAdUnitId = 'ys76fqapff8aa0fn';
+  static const _levelPlayMrecAdUnitId = '1t5uxyd1n2o74xik';
+  static const _levelPlayInterstitialAdUnitId = 'y0s8vsk7x3cv5icb';
+  static const _levelPlayRewardedAdUnitId = '2tdknaw4onigonjx';
 
-  // Meta Audience Network — App ID 27937713359198663.
-  static const _metaBannerPlacementId = '27937713359198663_27937721435864522';
-  static const _metaMrecPlacementId = '27937713359198663_27937721432531189';
+  bool _isLevelPlayInitialized = false;
 
-  // Vungle (Liftoff Monetize) — App ID 6a8b5a2fa58d1846183b4aae.
-  static const _vungleBannerPlacementId = 'BANNER-2335612';
-  static const _vungleMrecPlacementId = 'MREC-5435890';
-  static const _vungleInterstitialPlacementId = 'INTERSTITIAL-2948897';
+  late final LevelPlayInterstitialAd _levelPlayInterstitialAd;
+  bool _levelPlayInterstitialReady = false;
+  bool _levelPlayInterstitialLoading = false;
+  VoidCallback? _pendingLevelPlayInterstitialDismiss;
 
-  static const _metaAdsInitChannel = MethodChannel('meta_ads_init');
-  static const _vungleAdsInitChannel = MethodChannel('vungle_ads_init');
-  static const _vungleInterstitialChannel = MethodChannel('vungle_interstitial');
-  static const _vungleInterstitialEventsChannel = MethodChannel('vungle_interstitial_events');
-
-  // Was hardcoded true, which meant Unity was serving test ad creatives
-  // in every build, release included — no real Unity revenue was ever
-  // possible while that stood. kDebugMode ties it to the actual build
-  // type instead: real ads in release, test creatives while developing.
-  static const bool _testMode = kDebugMode;
-
-  bool _isUnityInitialized = false;
-  bool _isMetaInitialized = false;
-  bool _isVungleInitialized = false;
+  late final LevelPlayRewardedAd _levelPlayRewardedAd;
   bool _rewardedReady = false;
   bool _rewardedLoading = false;
-  bool _vungleInterstitialReady = false;
-  bool _vungleInterstitialLoading = false;
-  VoidCallback? _pendingVungleInterstitialDismiss;
+  bool _rewardEarned = false; // set in onAdRewarded, read in onAdClosed
+  VoidCallback? _pendingRewardOnReward;
+  VoidCallback? _pendingRewardOnDismissedWithoutReward;
 
   AdService() {
-    // Vungle's interstitial has no per-instance channel the way the
-    // banner PlatformViews do (there's no embeddable view to attach one
-    // to) — the native side reports "the ad the user was watching just
-    // ended" on this single shared channel instead.
-    _vungleInterstitialEventsChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onAdEnd') {
-        _pendingVungleInterstitialDismiss?.call();
-        _pendingVungleInterstitialDismiss = null;
-        loadVungleInterstitial();
-      }
-    });
+    _levelPlayInterstitialAd = LevelPlayInterstitialAd(adUnitId: _levelPlayInterstitialAdUnitId);
+    _levelPlayInterstitialAd.setListener(_InterstitialListener(this));
+    _levelPlayRewardedAd = LevelPlayRewardedAd(adUnitId: _levelPlayRewardedAdUnitId);
+    _levelPlayRewardedAd.setListener(_RewardedListener(this));
   }
 
   Future<void> initialize() async {
-    await Future.wait([_initUnity(), _initMeta(), _initVungle()]);
+    await _initLevelPlay();
   }
 
-  Future<void> _initUnity() async {
-    await UnityAds.init(
-      gameId: _unityGameId,
-      testMode: _testMode,
-      onComplete: () {
-        debugPrint('Unity Ads initialized');
-        _isUnityInitialized = true;
-        loadRewardedAd(RewardedAdSlot.streakRepair);
-      },
-      onFailed: (error, message) {
-        debugPrint('Unity Ads failed to initialize: $error $message');
-      },
-    );
-  }
-
-  Future<void> _initMeta() async {
+  Future<void> _initLevelPlay() async {
     try {
-      final result = await _metaAdsInitChannel.invokeMethod<Map<Object?, Object?>>('initialize');
-      final success = result?['success'] as bool? ?? false;
-      debugPrint('Meta Audience Network initialized: $success (${result?['message']})');
-      _isMetaInitialized = success;
+      // Registered before init, per LevelPlay's own guidance — attaching
+      // the listener afterward risks losing early impression events.
+      LevelPlay.addImpressionDataListener(_ImpressionDataListener());
+      final initRequest = LevelPlayInitRequest.builder(_levelPlayAppKey).build();
+      await LevelPlay.init(initRequest: initRequest, initListener: this);
     } catch (e, st) {
-      debugPrint('Meta Audience Network failed to initialize: $e\n$st');
+      debugPrint('LevelPlay failed to initialize: $e\n$st');
     }
   }
 
-  Future<void> _initVungle() async {
-    try {
-      final result = await _vungleAdsInitChannel.invokeMethod<Map<Object?, Object?>>('initialize');
-      final success = result?['success'] as bool? ?? false;
-      debugPrint('Vungle initialized: $success (${result?['message']})');
-      _isVungleInitialized = success;
-      if (success) loadVungleInterstitial();
-    } catch (e, st) {
-      debugPrint('Vungle failed to initialize: $e\n$st');
-    }
+  // ── LevelPlayInitListener ────────────────────────────────────────────
+
+  @override
+  void onInitSuccess(LevelPlayConfiguration configuration) {
+    debugPrint('LevelPlay initialized');
+    _isLevelPlayInitialized = true;
+    loadLevelPlayInterstitial();
+    loadRewardedAd(RewardedAdSlot.streakRepair);
   }
 
-  // ── Banner, second provider (Meta) ──────────────────────────────────
-
-  String get metaBannerPlacementId => _metaBannerPlacementId;
-  String get metaMrecPlacementId => _metaMrecPlacementId;
-  bool get isMetaInitialized => _isMetaInitialized;
-
-  // ── Banner third provider, clue MREC, streak-repair interstitial trial
-  // (Vungle / Liftoff Monetize) ────────────────────────────────────────
-
-  String get vungleBannerPlacementId => _vungleBannerPlacementId;
-  String get vungleMrecPlacementId => _vungleMrecPlacementId;
-  bool get isVungleInitialized => _isVungleInitialized;
-
-  bool get isVungleInterstitialReady => _vungleInterstitialReady;
-
-  void loadVungleInterstitial() {
-    if (_vungleInterstitialReady || _vungleInterstitialLoading) return;
-    _vungleInterstitialLoading = true;
-    _vungleInterstitialChannel
-        .invokeMethod<Map<Object?, Object?>>('load', {'placementId': _vungleInterstitialPlacementId})
-        .then((result) {
-      _vungleInterstitialLoading = false;
-      final success = result?['success'] as bool? ?? false;
-      _vungleInterstitialReady = success;
-      if (!success) {
-        debugPrint('Vungle interstitial failed to load: ${result?['errorCode']} ${result?['errorMessage']}');
-      }
-    }).catchError((Object e, StackTrace st) {
-      _vungleInterstitialLoading = false;
-      _vungleInterstitialReady = false;
-      debugPrint('Vungle interstitial load error: $e\n$st');
-    });
+  @override
+  void onInitFailed(LevelPlayInitError error) {
+    debugPrint('LevelPlay failed to initialize: $error');
   }
 
-  /// Shows the streak-repair interstitial — trialled as an alternative
-  /// to Unity's rewarded video for that slot (see streak_break_dialog.dart).
+  // ── Banner + MREC (LevelPlay) ────────────────────────────────────────
+
+  String get levelPlayBannerAdUnitId => _levelPlayBannerAdUnitId;
+  String get levelPlayMrecAdUnitId => _levelPlayMrecAdUnitId;
+  bool get isLevelPlayInitialized => _isLevelPlayInitialized;
+
+  // ── Interstitial, streak-repair fallback (LevelPlay) ─────────────────
+
+  bool get isLevelPlayInterstitialReady => _levelPlayInterstitialReady;
+
+  void loadLevelPlayInterstitial() {
+    if (_levelPlayInterstitialReady || _levelPlayInterstitialLoading) return;
+    _levelPlayInterstitialLoading = true;
+    _levelPlayInterstitialAd.loadAd();
+  }
+
+  /// Shows the streak-repair interstitial — falls back to this when the
+  /// rewarded video (see below) has nothing (see streak_break_dialog.dart).
   /// Unlike a rewarded ad, an interstitial has no "reward earned" signal
   /// of its own: [onDismissed] fires once the user closes it, full stop,
   /// so callers treat "watched" and "dismissed" as the same outcome —
   /// there's no equivalent of a rewarded ad's skip-without-reward case.
-  Future<void> showVungleInterstitial({
+  Future<void> showLevelPlayInterstitial({
     required VoidCallback onDismissed,
     VoidCallback? onNotReady,
   }) async {
-    if (!_vungleInterstitialReady) {
+    final ready = await _levelPlayInterstitialAd.isAdReady();
+    if (!ready) {
       onNotReady?.call();
-      loadVungleInterstitial();
+      loadLevelPlayInterstitial();
       return;
     }
-    _vungleInterstitialReady = false; // consumed — reload happens on onAdEnd
-    _pendingVungleInterstitialDismiss = onDismissed;
-    final shown = await _vungleInterstitialChannel.invokeMethod<bool>('show') ?? false;
-    if (!shown) {
-      // Native side declined to play it after all (e.g. expired between
-      // our readiness check and now) — nothing will ever call onAdEnd
-      // for this attempt, so resolve it here instead of leaving the
-      // caller hanging forever.
-      _pendingVungleInterstitialDismiss = null;
-      onDismissed();
-      loadVungleInterstitial();
-    }
+    _pendingLevelPlayInterstitialDismiss = onDismissed;
+    // 'Default' — LevelPlay's placement name is a reporting tag, not a
+    // functional identifier; there's only one placement for this slot.
+    _levelPlayInterstitialAd.showAd(placementName: 'Default');
   }
 
-  // ── Banner + Rewarded (Unity) ────────────────────────────────────────
-  //
-  // Rewarded's two slots share _rewardedPlacementId, so ready/loading
-  // state is tracked once rather than per-slot — there's only one
-  // underlying ad to be ready or not. `slot` is still accepted on every
-  // method below purely so call sites keep expressing which feature is
-  // asking.
+  void _onInterstitialLoaded() {
+    debugPrint('LevelPlay interstitial loaded');
+    _levelPlayInterstitialReady = true;
+    _levelPlayInterstitialLoading = false;
+  }
 
-  String get unityBannerPlacementId => _bannerPlacementId;
-  bool get isUnityInitialized => _isUnityInitialized;
+  void _onInterstitialLoadFailed(LevelPlayAdError error) {
+    debugPrint('LevelPlay interstitial failed to load: $error');
+    _levelPlayInterstitialReady = false;
+    _levelPlayInterstitialLoading = false;
+  }
+
+  void _onInterstitialDisplayFailed(LevelPlayAdError error) {
+    debugPrint('LevelPlay interstitial failed to display: $error');
+    _levelPlayInterstitialReady = false;
+    _pendingLevelPlayInterstitialDismiss?.call();
+    _pendingLevelPlayInterstitialDismiss = null;
+    loadLevelPlayInterstitial();
+  }
+
+  void _onInterstitialClosed() {
+    _levelPlayInterstitialReady = false; // consumed — reload below for next time
+    _pendingLevelPlayInterstitialDismiss?.call();
+    _pendingLevelPlayInterstitialDismiss = null;
+    loadLevelPlayInterstitial();
+  }
+
+  // ── Rewarded, streak-repair primary (LevelPlay) ──────────────────────
+  //
+  // `slot` is accepted on every method below purely so call sites keep
+  // expressing which feature is asking, even though there's currently
+  // only the one rewarded slot.
 
   bool isRewardedAdReady(RewardedAdSlot slot) => _rewardedReady;
 
   void loadRewardedAd(RewardedAdSlot slot) {
     if (_rewardedReady || _rewardedLoading) return;
     _rewardedLoading = true;
-    UnityAds.load(
-      placementId: _rewardedPlacementId,
-      onComplete: (placementId) {
-        debugPrint('RewardedAd loaded');
-        _rewardedReady = true;
-        _rewardedLoading = false;
-      },
-      onFailed: (placementId, error, message) {
-        debugPrint('RewardedAd failed to load: $error $message');
-        _rewardedReady = false;
-        _rewardedLoading = false;
-      },
-    );
+    _levelPlayRewardedAd.loadAd();
   }
 
   void showRewardedAd(
@@ -218,27 +175,125 @@ class AdService {
       return;
     }
     _rewardedReady = false; // consumed — reload below for next time
-    UnityAds.showVideoAd(
-      placementId: _rewardedPlacementId,
-      onComplete: (placementId) {
-        onReward();
-        loadRewardedAd(slot);
-      },
-      onSkipped: (placementId) {
-        onDismissedWithoutReward?.call();
-        loadRewardedAd(slot);
-      },
-      onFailed: (placementId, error, message) {
-        debugPrint('RewardedAd failed to display: $error $message');
-        onDismissedWithoutReward?.call();
-        loadRewardedAd(slot);
-      },
-    );
+    _rewardEarned = false;
+    _pendingRewardOnReward = onReward;
+    _pendingRewardOnDismissedWithoutReward = onDismissedWithoutReward;
+    _levelPlayRewardedAd.showAd(placementName: 'Default');
+  }
+
+  void _onRewardedLoaded() {
+    debugPrint('LevelPlay rewarded ad loaded');
+    _rewardedReady = true;
+    _rewardedLoading = false;
+  }
+
+  void _onRewardedLoadFailed(LevelPlayAdError error) {
+    debugPrint('LevelPlay rewarded ad failed to load: $error');
+    _rewardedReady = false;
+    _rewardedLoading = false;
+  }
+
+  void _onRewardedDisplayFailed(LevelPlayAdError error) {
+    debugPrint('LevelPlay rewarded ad failed to display: $error');
+    _rewardedReady = false;
+    _pendingRewardOnDismissedWithoutReward?.call();
+    _pendingRewardOnReward = null;
+    _pendingRewardOnDismissedWithoutReward = null;
+    loadRewardedAd(RewardedAdSlot.streakRepair);
+  }
+
+  void _onRewardedEarned() {
+    _rewardEarned = true;
+  }
+
+  void _onRewardedClosed() {
+    if (_rewardEarned) {
+      _pendingRewardOnReward?.call();
+    } else {
+      _pendingRewardOnDismissedWithoutReward?.call();
+    }
+    _pendingRewardOnReward = null;
+    _pendingRewardOnDismissedWithoutReward = null;
+    loadRewardedAd(RewardedAdSlot.streakRepair);
   }
 
   void dispose() {
     // Both SDKs manage their own ad lifecycle internally; nothing to
     // explicitly dispose here.
+  }
+}
+
+// LevelPlayInterstitialAd and LevelPlayRewardedAd share identically-named
+// listener methods (onAdLoaded, onAdClosed, etc.) — if AdService
+// implemented both listener interfaces directly, one method body
+// couldn't tell which ad type had actually fired it. Each ad object gets
+// its own small adapter instead, delegating to AdService's private
+// per-ad-type handlers.
+
+class _InterstitialListener implements LevelPlayInterstitialAdListener {
+  final AdService _service;
+  _InterstitialListener(this._service);
+
+  @override
+  void onAdLoaded(LevelPlayAdInfo adInfo) => _service._onInterstitialLoaded();
+  @override
+  void onAdLoadFailed(LevelPlayAdError error) => _service._onInterstitialLoadFailed(error);
+  @override
+  void onAdDisplayed(LevelPlayAdInfo adInfo) {}
+  @override
+  void onAdDisplayFailed(LevelPlayAdError error, LevelPlayAdInfo adInfo) =>
+      _service._onInterstitialDisplayFailed(error);
+  @override
+  void onAdClicked(LevelPlayAdInfo adInfo) {}
+  @override
+  void onAdClosed(LevelPlayAdInfo adInfo) => _service._onInterstitialClosed();
+  @override
+  void onAdInfoChanged(LevelPlayAdInfo adInfo) {}
+}
+
+class _RewardedListener implements LevelPlayRewardedAdListener {
+  final AdService _service;
+  _RewardedListener(this._service);
+
+  @override
+  void onAdLoaded(LevelPlayAdInfo adInfo) => _service._onRewardedLoaded();
+  @override
+  void onAdLoadFailed(LevelPlayAdError error) => _service._onRewardedLoadFailed(error);
+  @override
+  void onAdDisplayed(LevelPlayAdInfo adInfo) {}
+  @override
+  void onAdDisplayFailed(LevelPlayAdError error, LevelPlayAdInfo adInfo) =>
+      _service._onRewardedDisplayFailed(error);
+  @override
+  void onAdClicked(LevelPlayAdInfo adInfo) {}
+  @override
+  void onAdClosed(LevelPlayAdInfo adInfo) => _service._onRewardedClosed();
+  @override
+  void onAdInfoChanged(LevelPlayAdInfo adInfo) {}
+  @override
+  void onAdRewarded(LevelPlayReward reward, LevelPlayAdInfo adInfo) => _service._onRewardedEarned();
+}
+
+// Forwards LevelPlay's per-impression revenue data (Impression-Level
+// Revenue / ILR) to Firebase Analytics as an `ad_impression` event —
+// Firebase/GA4's own documented convention for ad-mediation revenue
+// events, letting ad revenue show up alongside the rest of the app's
+// analytics rather than only in LevelPlay's own dashboard.
+class _ImpressionDataListener implements LevelPlayImpressionDataListener {
+  @override
+  void onImpressionSuccess(LevelPlayImpressionData impressionData) {
+    FirebaseAnalytics.instance.logEvent(
+      name: 'ad_impression',
+      parameters: {
+        'ad_platform': 'levelplay',
+        if (impressionData.adNetwork != null) 'ad_source': impressionData.adNetwork!,
+        if (impressionData.adFormat != null) 'ad_format': impressionData.adFormat!,
+        if (impressionData.mediationAdUnitName != null)
+          'ad_unit_name': impressionData.mediationAdUnitName!,
+        'currency': 'USD',
+        if (impressionData.revenue != null) 'value': impressionData.revenue!,
+      },
+    );
   }
 }
 

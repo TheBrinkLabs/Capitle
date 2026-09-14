@@ -81,35 +81,33 @@ class _StreakBreakDialogState extends State<_StreakBreakDialog> with SingleTicke
     super.dispose();
   }
 
-  // Waterfall: Unity's rewarded video first (a real "watched to
-  // completion" guarantee, unlike an interstitial), falling back to
-  // Vungle's interstitial if Unity has nothing. Vungle alone had this
-  // slot silently doing nothing for days whenever its account had no
-  // fill — a single-provider slot has no way to recover from that.
+  // Waterfall: LevelPlay's (Vungle-mediated) rewarded video first (a real
+  // "watched to completion" guarantee, unlike an interstitial), falling
+  // back to LevelPlay's interstitial if the rewarded ad has nothing.
+  // Vungle alone had this slot silently doing nothing for days whenever
+  // its account had no fill — a single-provider slot has no way to
+  // recover from that.
   void _watchAd() {
     if (_watching || _resolved) return;
     setState(() => _watching = true);
-    _tryUnity();
+    _tryRewarded();
   }
 
-  void _tryUnity() {
+  void _tryRewarded() {
     if (!adService.isRewardedAdReady(RewardedAdSlot.streakRepair)) {
-      _tryVungle();
+      _tryInterstitialFallback();
       return;
     }
     adService.showRewardedAd(
       RewardedAdSlot.streakRepair,
       onReward: _onAdWatched,
-      // Unity's plugin conflates "user skipped early" and "ad failed to
-      // display" into this same callback — either way, fall through to
-      // Vungle rather than leaving the player with nothing.
-      onDismissedWithoutReward: _tryVungle,
-      onNotReady: _tryVungle,
+      onDismissedWithoutReward: _tryInterstitialFallback,
+      onNotReady: _tryInterstitialFallback,
     );
   }
 
-  void _tryVungle() {
-    adService.showVungleInterstitial(
+  void _tryInterstitialFallback() {
+    adService.showLevelPlayInterstitial(
       onDismissed: _onAdWatched,
       onNotReady: _onAllProvidersFailed,
     );

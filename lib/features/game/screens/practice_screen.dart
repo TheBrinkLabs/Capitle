@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -429,7 +428,6 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
     final gameState = ref.read(_provider);
     if (gameState == null || gameState.isOver || gameState.clueUsed || gameState.freeClueUsed) return;
 
-    final canSpendGuess = gameState.guessesRemaining > 1;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     void afterReveal() {
@@ -509,40 +507,6 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
                 ),
               ),
 
-              if (canSpendGuess) ...[
-                const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    ref.read(_provider.notifier).useClue();
-                    afterReveal();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.gradientTealBlue,
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(color: AppColors.teal.withOpacity(0.28), blurRadius: 14, offset: const Offset(0, 5)),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.arrow_circle_up_rounded, color: Colors.black, size: 20),
-                        SizedBox(width: 8),
-                        Text('Use a guess instead',
-                            style: TextStyle(
-                              fontFamily: 'Outfit', fontSize: 14, fontWeight: FontWeight.w700,
-                              color: Colors.black,
-                            )),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () => Navigator.pop(ctx),
@@ -605,9 +569,7 @@ class _PracticeGameScreenState extends ConsumerState<PracticeGameScreen>
     final textColor = isDark ? AppColors.textDark : AppColors.textLight;
     final textMuted = isDark ? AppColors.textMutedDark : AppColors.textMutedLight;
     final isFlag = widget.mode == GameMode.guessFlag;
-    // Button opens if EITHER path is available — the ad option doesn't
-    // require guesses in reserve, only "spend a guess" does (gated
-    // separately inside the dialog).
+    // Ad-only now — spending a guess for a clue was removed.
     final canUseClue = !gameState.clueUsed &&
         !gameState.freeClueUsed &&
         !gameState.isOver;

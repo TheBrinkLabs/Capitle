@@ -1,22 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:unity_ads_plugin/unity_ads_plugin.dart';
+import 'package:unity_levelplay_mediation/unity_levelplay_mediation.dart';
 import '../../../core/utils/ad_service.dart';
-import '../../../core/utils/meta_banner_ad.dart';
-import '../../../core/utils/vungle_banner_ad.dart';
 import '../../../core/widgets/aluna_house_ad.dart';
-
-// Real ad networks tried in order for the banner slot, before falling
-// back to the house banner — Unity first (it's the one with actual
-// gaming-category demand for a small new publisher right now), Meta
-// second (currently near-zero fill of its own, see the fill-rate
-// investigation, but a real independent demand source that costs
-// nothing to keep trying), Vungle third (freshly integrated — its own
-// fill rate here isn't established yet).
-enum _AdProvider { unity, meta, vungle }
-
-const _adProviders = [_AdProvider.unity, _AdProvider.meta, _AdProvider.vungle];
 
 enum _BannerState { loading, loaded, failed }
 
@@ -90,12 +77,12 @@ class PersistentBannerAd extends ConsumerWidget {
 }
 
 /// Banner ad, normally shown at the bottom of a screen (as
-/// bottomNavigationBar). Uses Meta Audience Network via a native
-/// platform channel (see meta_banner_ad.dart). If the real ad fails to
-/// load — or Meta never responds at all within a reasonable window
-/// (covers "no return", not just an explicit failure callback) — falls
-/// back to a self-provided house banner instead of leaving a blank
-/// strip.
+/// bottomNavigationBar). Backed by Unity LevelPlay, which mediates Unity
+/// Ads, Vungle/Liftoff Monetize, and Meta Audience Network — whichever
+/// wins the auction for a given request. If the ad fails to load — or
+/// never responds at all within a reasonable window (covers "no
+/// return", not just an explicit failure callback) — falls back to a
+/// self-provided house banner instead of leaving a blank strip.
 ///
 /// Set [atTop] on screens with a text field the on-screen keyboard can
 /// cover the bottom of the screen with (the games) — the banner moves
@@ -113,75 +100,69 @@ class BannerAdWidget extends StatefulWidget {
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
 }
 
-class _BannerAdWidgetState extends State<BannerAdWidget> {
-  // Once every real provider in the waterfall has failed, wait this long
-  // before trying the whole thing again from the top. Ad auctions
-  // refresh, so a request that fails now can easily succeed a bit later
-  // — but ad networks generally advise against refreshing much faster
-  // than this: it doesn't meaningfully improve fill odds (inventory
-  // doesn't turn over that quickly either) and can start to look like
-  // abusive traffic.
+class _BannerAdWidgetState extends State<BannerAdWidget> implements LevelPlayBannerAdViewListener {
+  // Once the ad has failed, wait this long before trying again. Ad
+  // auctions refresh, so a request that fails now can easily succeed a
+  // bit later — but ad networks generally advise against refreshing much
+  // faster than this: it doesn't meaningfully improve fill odds
+  // (inventory doesn't turn over that quickly either) and can start to
+  // look like abusive traffic.
   static const _retryInterval = Duration(seconds: 20);
   static const _providerTimeout = Duration(seconds: 8);
 
   _BannerState _state = _BannerState.loading;
-  int _providerIndex = 0;
   Timer? _timeoutTimer;
   Timer? _retryTimer;
-  // Bumped on every attempt so the provider widget gets a new Key —
-  // that's what actually forces its underlying native platform view to
-  // be torn down and recreated, which is what triggers a fresh load
-  // attempt (each widget only ever loads once per Key, on creation).
+  // Bumped on every retry so the ad view gets a new GlobalKey — that's
+  // what actually forces its underlying native platform view to be torn
+  // down and recreated, which is what triggers a fresh load attempt
+  // (the widget only ever loads once per Key, on creation).
   int _loadAttempt = 0;
 
-  _AdProvider get _currentProvider => _adProviders[_providerIndex];
+  GlobalKey<LevelPlayBannerAdViewState>? _bannerKey;
+  int? _bannerKeyAttempt;
+
+  GlobalKey<LevelPlayBannerAdViewState> get _currentBannerKey {
+    if (_bannerKeyAttempt != _loadAttempt) {
+      _bannerKey = GlobalKey<LevelPlayBannerAdViewState>();
+      _bannerKeyAttempt = _loadAttempt;
+    }
+    return _bannerKey!;
+  }
 
   @override
   void initState() {
     super.initState();
-    _startProviderTimeout();
+    _startTimeout();
   }
 
-  void _startProviderTimeout() {
+  void _startTimeout() {
     _timeoutTimer?.cancel();
-    // If a provider never calls back at all (success or failure) within
-    // this window, treat it the same as an explicit failure.
+    // If the ad never calls back at all (success or failure) within this
+    // window, treat it the same as an explicit failure.
     _timeoutTimer = Timer(_providerTimeout, () {
-      if (mounted && _state == _BannerState.loading) _onProviderFailed();
+      if (mounted && _state == _BannerState.loading) _onFailed();
     });
   }
 
-  void _onProviderLoaded() {
+  void _onLoaded() {
     _timeoutTimer?.cancel();
     _retryTimer?.cancel();
     if (mounted) setState(() => _state = _BannerState.loaded);
   }
 
-  void _onProviderFailed() {
+  void _onFailed() {
     if (!mounted) return;
-    if (_providerIndex < _adProviders.length - 1) {
-      // Next provider in the waterfall, immediately — no reason to wait
-      // once we already know this one has nothing.
-      setState(() {
-        _providerIndex++;
-        _loadAttempt++;
-        _state = _BannerState.loading;
-      });
-      _startProviderTimeout();
-      return;
-    }
-    // Every provider struck out — fall back to the house banner, and
-    // retry the whole waterfall from the top after a cooldown.
+    // Fall back to the house banner, and retry after a cooldown.
     setState(() => _state = _BannerState.failed);
     _retryTimer?.cancel();
     _retryTimer = Timer(_retryInterval, () {
       if (!mounted) return;
       setState(() {
-        _providerIndex = 0;
         _loadAttempt++;
         _state = _BannerState.loading;
       });
-      _startProviderTimeout();
+      _startTimeout();
     });
   }
 
@@ -193,43 +174,51 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   }
 
   Widget _buildProviderAd() {
-    switch (_currentProvider) {
-      case _AdProvider.unity:
-        return UnityBannerAd(
-          key: ValueKey('unity_$_loadAttempt'),
-          placementId: adService.unityBannerPlacementId,
-          onLoad: (placementId) => _onProviderLoaded(),
-          onFailed: (placementId, error, message) {
-            debugPrint('Unity banner failed to load: $error $message');
-            _onProviderFailed();
-          },
-        );
-      case _AdProvider.meta:
-        return MetaBannerAd(
-          key: ValueKey('meta_$_loadAttempt'),
-          placementId: adService.metaBannerPlacementId,
-          onLoad: () => _onProviderLoaded(),
-          onFailed: (errorCode, errorMessage) {
-            debugPrint('Meta banner failed to load: $errorCode $errorMessage');
-            _onProviderFailed();
-          },
-        );
-      case _AdProvider.vungle:
-        return VungleBannerAd(
-          key: ValueKey('vungle_$_loadAttempt'),
-          placementId: adService.vungleBannerPlacementId,
-          onLoad: () => _onProviderLoaded(),
-          onFailed: (errorCode, errorMessage) {
-            debugPrint('Vungle banner failed to load: $errorCode $errorMessage');
-            _onProviderFailed();
-          },
-        );
-    }
+    final key = _currentBannerKey;
+    return LevelPlayBannerAdView(
+      key: key,
+      adUnitId: adService.levelPlayBannerAdUnitId,
+      adSize: LevelPlayAdSize.BANNER,
+      listener: this,
+      onPlatformViewCreated: () => key.currentState?.loadAd(),
+    );
+  }
+
+  // ── LevelPlayBannerAdViewListener ────────────────────────────────────
+
+  @override
+  void onAdLoaded(LevelPlayAdInfo adInfo) => _onLoaded();
+
+  @override
+  void onAdLoadFailed(LevelPlayAdError error) {
+    debugPrint('LevelPlay banner failed to load: $error');
+    _onFailed();
   }
 
   @override
+  void onAdDisplayed(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdDisplayFailed(LevelPlayAdInfo adInfo, LevelPlayAdError error) {
+    debugPrint('LevelPlay banner failed to display: $error');
+    _onFailed();
+  }
+
+  @override
+  void onAdClicked(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdExpanded(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdCollapsed(LevelPlayAdInfo adInfo) {}
+
+  @override
+  void onAdLeftApplication(LevelPlayAdInfo adInfo) {}
+
+  @override
   Widget build(BuildContext context) {
-    if (!adService.isUnityInitialized && !adService.isMetaInitialized && !adService.isVungleInitialized) {
+    if (!adService.isLevelPlayInitialized) {
       return const SizedBox.shrink();
     }
 
@@ -340,7 +329,7 @@ const _gold = Color(0xFFD4AF5A);
 // not adapted. Tapping this banner opens Higgins' Play Store listing.
 const List<String> _houseMessages = [
   "Hi, I'm Higgins.",
-  "I'm your new coach.",
+  "I'm your new personal trainer.",
 ];
 
 // TODO: once Higgins ships, swap this tap behaviour to open its real
@@ -416,7 +405,7 @@ class _HigginsBannerState extends State<_HigginsBanner> with TickerProviderState
       onTap: () {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('🐾 Coach Higgins — coming soon!'),
+            content: Text('🐾 Personal Trainer Higgins — coming soon!'),
             duration: Duration(seconds: 2),
           ),
         );

@@ -36,12 +36,15 @@ class StatsNotifier extends Notifier<PlayerStats> {
     state = const PlayerStats();
   }
 
-  /// Repairs a streak broken yesterday (call only after a rewarded ad has
-  /// actually been watched to completion) and refreshes the cached streak
-  /// numbers so Home/Stats reflect it immediately.
-  Future<void> repairStreak(GameMode mode) async {
+  /// Repairs a streak broken on [dateKey] (the "yesterday" captured when
+  /// the repair was offered — see GameRepository.repairStreakForMode for
+  /// why that must be passed through rather than recomputed here; call
+  /// only after a rewarded ad has actually been watched to completion)
+  /// and refreshes the cached streak numbers so Home/Stats reflect it
+  /// immediately.
+  Future<void> repairStreak(GameMode mode, {required String dateKey}) async {
     final repo = ref.read(gameRepositoryProvider);
-    await repo.repairStreakForMode(mode);
+    await repo.repairStreakForMode(mode, dateKey: dateKey);
 
     final newCurrent = repo.computeStreakForMode(mode);
     final existingBest = state.streakForMode(mode).best;
