@@ -1,0 +1,53 @@
+name: League Participation Report
+
+# Target is Wednesday 20:00 and Sunday 18:00 UK time. GitHub Actions cron
+# only runs in UTC and doesn't shift for BST/GMT, so each target is covered
+# by two cron entries (one per UK offset) and the "Check schedule" step
+# below only lets the run proceed when the actual UK wall-clock time
+# matches — keeps this correct across the March/October clock changes
+# without needing the cron lines touched twice a year.
+on:
+  schedule:
+    - cron: '0 19 * * 3' # Wed 20:00 UK during BST (UTC+1)
+    - cron: '0 20 * * 3' # Wed 20:00 UK during GMT (UTC+0)
+    - cron: '0 17 * * 0' # Sun 18:00 UK during BST (UTC+1)
+    - cron: '0 18 * * 0' # Sun 18:00 UK during GMT (UTC+0)
+  workflow_dispatch: {} # manual trigger — always sends, bypasses the time check
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check schedule
+        id: check
+        run: |
+          UK_DOW=$(TZ=Europe/London date +%u) # 1=Mon .. 7=Sun
+          UK_HOUR=$(TZ=Europe/London date +%H)
+          PROCEED=false
+          if [ "$UK_DOW" = "3" ] && [ "$UK_HOUR" = "20" ]; then PROCEED=true; fi # Wed 20:00
+          if [ "$UK_DOW" = "7" ] && [ "$UK_HOUR" = "18" ]; then PROCEED=true; fi # Sun 18:00
+          echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.proceed == 'true' || github.event_name == 'workflow_dispatch'
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: tools/league-rollover/package-lock.json
+
+      - name: Install dependencies
+        if: steps.check.outputs.proceed == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: tools/league-rollover
+        run: npm ci
+
+      - name: Send report
+        if: steps.check.outputs.proceed == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: tools/league-rollover
+        run: node league_report.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          REPORT_TO_EMAIL: ${{ secrets.REPORT_TO_EMAIL }}

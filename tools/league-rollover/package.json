@@ -7,9 +7,11 @@
   "main": "rollover.js",
   "scripts": {
     "start": "node rollover.js",
-    "daily-join": "node assignNewJoiners.js"
+    "daily-join": "node assignNewJoiners.js",
+    "report": "node league_report.js"
   },
   "dependencies": {
-    "firebase-admin": "^12.6.0"
+    "firebase-admin": "^12.6.0",
+    "nodemailer": "^6.9.15"
   }
 }
