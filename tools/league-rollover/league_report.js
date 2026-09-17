@@ -80,6 +80,40 @@ function renderHtml({ weekId, rows, total }) {
     </table>`;
 }
 
+// GitHub Actions' scheduled crons are UTC-only and "best effort" — they can
+// (and, observed in practice, sometimes do) fire 1-3+ hours late during busy
+// periods. Two things follow from that:
+//   1. The window each target maps to has to be generous, not an exact
+//      minute/hour match, or a late firing just silently misses it.
+//   2. Because the workflow schedules TWO cron entries per target (one for
+//      BST, one for GMT — see the workflow file), a delayed firing of the
+//      "wrong" entry can land inside the same window as the "right" one and
+//      cause a genuine duplicate send. The dedupe check below (keyed by
+//      week + target, stored in Firestore) is what actually prevents that —
+//      the window alone can't.
+const TARGETS = [
+  { key: 'wed', weekday: 'Wed', hourMin: 19, hourMax: 23 },
+  { key: 'sun', weekday: 'Sun', hourMin: 17, hourMax: 23 },
+];
+
+function ukLocalParts(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    weekday: 'short',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  return {
+    weekday: parts.find(p => p.type === 'weekday').value,
+    hour: parseInt(parts.find(p => p.type === 'hour').value, 10),
+  };
+}
+
+function matchTarget(date) {
+  const { weekday, hour } = ukLocalParts(date);
+  return TARGETS.find(t => t.weekday === weekday && hour >= t.hourMin && hour <= t.hourMax) || null;
+}
+
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!serviceAccountRaw) throw new Error('FIREBASE_SERVICE_ACCOUNT env var is not set');
@@ -88,10 +122,32 @@ async function main() {
   const toEmail = process.env.REPORT_TO_EMAIL || gmailUser;
   if (!gmailUser || !gmailAppPassword) throw new Error('GMAIL_USER / GMAIL_APP_PASSWORD env vars are not set');
 
+  const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+  const now = new Date();
+  const target = matchTarget(now);
+  const { weekday, hour } = ukLocalParts(now);
+
+  if (!isManual && !target) {
+    console.log(`Not within a scheduled report window (UK local time: ${weekday} ${hour}:00) — skipping.`);
+    return;
+  }
+
   admin.initializeApp({ credential: admin.credential.cert(JSON.parse(serviceAccountRaw)) });
   const db = admin.firestore();
 
-  const weekId = isoWeekId(new Date());
+  const weekId = isoWeekId(now);
+  const stateRef = db.collection('systemState').doc('leagueReportSchedule');
+
+  if (!isManual) {
+    const dedupeKey = `${weekId}-${target.key}`;
+    const stateSnap = await stateRef.get();
+    if (stateSnap.exists && stateSnap.data().lastSentKey === dedupeKey) {
+      console.log(`Already sent for ${dedupeKey} — skipping duplicate (this is a second, delayed cron firing).`);
+      return;
+    }
+    await stateRef.set({ lastSentKey: dedupeKey, sentAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  }
+
   const report = await buildReport(db, weekId);
 
   const transporter = nodemailer.createTransport({
