@@ -53,8 +53,37 @@ class AdService implements LevelPlayInitListener {
     _levelPlayRewardedAd.setListener(_RewardedListener(this));
   }
 
-  Future<void> initialize() async {
+  // GDPR/CCPA consent — see ad_consent.dart, which owns *when* this is
+  // called (first-launch/existing-user gate, or re-opened from Settings).
+  // [consentGranted] must be applied before LevelPlay.init() the first
+  // time; on a later call (consent changed from Settings mid-session)
+  // LevelPlay is already initialized so this just re-applies the flags —
+  // that only affects *future* ad requests, not ones already in flight,
+  // which is an accepted limitation rather than something worth an app
+  // restart to fix properly.
+  Future<void> initialize({required bool consentGranted}) async {
+    await _applyConsent(consentGranted);
+    if (_isLevelPlayInitialized) return;
     await _initLevelPlay();
+  }
+
+  Future<void> _applyConsent(bool granted) async {
+    try {
+      // Exact network key strings LevelPlay expects — confirmed against
+      // Unity's own docs, not guessed: case-sensitive, "UnityAds" not
+      // "Unity". Mintegral is included even though its account isn't live
+      // yet — an inert entry for a network with no active instance is
+      // harmless, and it's one less thing to remember to add later.
+      await LevelPlayPrivacySettings.setGDPRConsents({
+        'Facebook': granted,
+        'Vungle': granted,
+        'UnityAds': granted,
+        'Mintegral': granted,
+      });
+      await LevelPlayPrivacySettings.setCCPA(!granted); // CCPA flag = "opted out of sale"
+    } catch (e, st) {
+      debugPrint('Failed to apply ad consent: $e\n$st');
+    }
   }
 
   Future<void> _initLevelPlay() async {

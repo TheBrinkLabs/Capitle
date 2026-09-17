@@ -14,6 +14,7 @@ import '../../../core/utils/providers.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../data/repositories/league_repository.dart';
 import '../../profile/providers/player_profile_provider.dart';
+import '../../../core/utils/ad_consent.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -290,6 +291,14 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                       isDark: isDark,
                     ),
+                  ]),
+
+                  const SizedBox(height: 20),
+
+                  // ── PRIVACY ───────────────────────────────────────
+                  _SectionLabel(label: 'Privacy', isDark: isDark),
+                  _SettingsGroup(isDark: isDark, children: [
+                    _AdConsentRow(isDark: isDark),
                   ]),
 
                   const SizedBox(height: 20),
@@ -889,6 +898,60 @@ class _NavRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Lets the user revisit their ad-consent choice — GDPR requires consent
+/// to be withdrawable, not just a one-time question at first launch (see
+/// AdConsentScreen, shown once in the onboarding flow). A small
+/// ConsumerStatefulWidget of its own (rather than folding into
+/// SettingsScreen's ConsumerWidget) because SharedPreferences writes don't
+/// trigger a Riverpod rebuild on their own — this needs its own setState
+/// after the dialog changes the stored value.
+class _AdConsentRow extends ConsumerStatefulWidget {
+  final bool isDark;
+  const _AdConsentRow({required this.isDark});
+
+  @override
+  ConsumerState<_AdConsentRow> createState() => _AdConsentRowState();
+}
+
+class _AdConsentRowState extends ConsumerState<_AdConsentRow> {
+  Future<void> _showDialog() async {
+    final prefs = ref.read(sharedPrefsProvider);
+    final granted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: widget.isDark ? AppColors.surface : AppColors.surfaceLight,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Ad Preferences', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w700)),
+        content: const Text(
+          "Allow personalized ads, tailored to you? You'll see ads either way — "
+          "this only decides whether they're personalized.",
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No thanks')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Allow')),
+        ],
+      ),
+    );
+    if (granted == null) return;
+    await AdConsentService.recordAndApply(prefs, granted);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = ref.watch(sharedPrefsProvider);
+    final granted = AdConsentService.isGranted(prefs);
+    return _NavRow(
+      icon: '🔒',
+      iconBg: const Color(0x1400D4AA),
+      title: 'Ad Preferences',
+      value: granted ? 'Personalized' : 'Non-personalized',
+      onTap: _showDialog,
+      isDark: widget.isDark,
     );
   }
 }

@@ -14,6 +14,8 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/utils/device_id_service.dart';
 import '../../../core/utils/progress_restore.dart';
 import '../../../core/utils/providers.dart';
+import '../../../core/utils/ad_consent.dart';
+import 'ad_consent_screen.dart';
 
 /// How this screen was reached, which decides what happens once setup
 /// finishes (whether Skip/Continue was chosen either way — this never
@@ -196,16 +198,39 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
     switch (widget.mode) {
       case ProfileSetupMode.firstLaunch:
-        Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainScaffold()));
-        Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const GameScreen(mode: GameMode.guessFlag)));
+        _proceedToApp(pushGameScreen: true);
       case ProfileSetupMode.existingUserAnnouncement:
-        Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainScaffold()));
+        _proceedToApp(pushGameScreen: false);
       case ProfileSetupMode.standalone:
         Navigator.of(context).pop();
     }
+  }
+
+  // Both onboarding paths (brand-new first launch, and the one-time
+  // existing-user announcement) converge here on their way into
+  // MainScaffold — the natural place to gate on ad consent, since neither
+  // path passes through main.dart's own gate chain (they navigate directly
+  // via Navigator instead of rebuilding CapitleApp).
+  void _proceedToApp({required bool pushGameScreen}) {
+    final prefs = ref.read(sharedPrefsProvider);
+
+    void enterApp(BuildContext ctx) {
+      Navigator.of(ctx).pushReplacement(MaterialPageRoute(builder: (_) => const MainScaffold()));
+      if (pushGameScreen) {
+        Navigator.of(ctx).push(MaterialPageRoute(builder: (_) => const GameScreen(mode: GameMode.guessFlag)));
+      }
+    }
+
+    if (!AdConsentService.hasSeenAdConsent(prefs)) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => AdConsentScreen(onAnswered: (ctx, granted) async {
+          await AdConsentService.recordAndApply(prefs, granted);
+          if (ctx.mounted) enterApp(ctx);
+        }),
+      ));
+      return;
+    }
+    enterApp(context);
   }
 
   @override

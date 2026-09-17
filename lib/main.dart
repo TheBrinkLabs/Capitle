@@ -7,9 +7,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/providers.dart';
 import 'core/utils/notification_service.dart';
-import 'core/utils/ad_service.dart';
 import 'core/utils/update_service.dart';
 import 'core/utils/aluna_availability_service.dart';
+import 'core/utils/ad_consent.dart';
 import 'core/services/firebase_bootstrap.dart';
 import 'core/services/auth_service.dart';
 import 'core/utils/route_observer.dart';
@@ -23,6 +23,7 @@ import 'features/stats/providers/stats_provider.dart';
 import 'features/home/screens/splash_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/onboarding/screens/league_announcement_screen.dart';
+import 'features/onboarding/screens/ad_consent_screen.dart';
 import 'main_scaffold.dart';
 
 void main() async {
@@ -71,7 +72,13 @@ void main() async {
   // longer to become ready on a cold start, which is an acceptable
   // trade for a genuinely fast-loading app.
   notificationService.init();
-  adService.initialize();
+  // If consent hasn't been asked yet, AdService.initialize() is deferred
+  // until the user actually answers AdConsentScreen (see main.dart's home
+  // gate and profile_setup_screen.dart's _finish()) — GDPR requires
+  // consent to be collected before ad SDKs run, not after.
+  if (AdConsentService.hasSeenAdConsent(prefs)) {
+    AdConsentService.applyStoredConsent(prefs);
+  }
   updateService.checkForFlexibleUpdate();
   alunaAvailabilityService.init(prefs);
 }
@@ -94,6 +101,17 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
 
   bool get _hasSeenLeagueAnnouncement =>
       ref.read(sharedPrefsProvider).getBool(_leagueAnnouncementKey) ?? false;
+
+  bool get _hasSeenAdConsent =>
+      AdConsentService.hasSeenAdConsent(ref.read(sharedPrefsProvider));
+
+  Future<void> _onAdConsentAnswered(BuildContext context, bool granted) async {
+    await AdConsentService.recordAndApply(ref.read(sharedPrefsProvider), granted);
+    if (context.mounted) {
+      Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainScaffold()));
+    }
+  }
 
   @override
   void initState() {
@@ -212,7 +230,9 @@ class _CapitleAppState extends ConsumerState<CapitleApp> {
                         await ref.read(sharedPrefsProvider).setBool(_leagueAnnouncementKey, true);
                       },
                     )
-                  : const MainScaffold())),
+                  : (!_hasSeenAdConsent
+                      ? AdConsentScreen(onAnswered: _onAdConsentAnswered)
+                      : const MainScaffold()))),
     );
   }
 }
