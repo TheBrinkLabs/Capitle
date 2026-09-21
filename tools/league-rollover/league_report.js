@@ -92,6 +92,7 @@ function renderHtml({ weekId, rows, total }) {
 //      week + target, stored in Firestore) is what actually prevents that —
 //      the window alone can't.
 const TARGETS = [
+  { key: 'mon', weekday: 'Mon', hourMin: 20, hourMax: 23 },
   { key: 'wed', weekday: 'Wed', hourMin: 19, hourMax: 23 },
   { key: 'sun', weekday: 'Sun', hourMin: 17, hourMax: 23 },
 ];

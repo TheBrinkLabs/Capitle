@@ -1,15 +1,17 @@
 name: League Participation Report
 
-# Target is Wednesday 20:00 and Sunday 18:00 UK time. GitHub Actions cron
-# only runs in UTC and doesn't shift for BST/GMT, so each target is covered
-# by two cron entries (one per UK offset). The actual "is this the right
-# moment, and have we already sent this one" logic lives in
-# league_report.js (window check + Firestore dedupe) rather than here,
-# because GitHub's scheduled crons are best-effort and can fire hours late —
-# an exact-match guard in this file would just silently miss delayed runs
-# the way an earlier version of this workflow did.
+# Target is Monday 21:00, Wednesday 20:00, and Sunday 18:00 UK time.
+# GitHub Actions cron only runs in UTC and doesn't shift for BST/GMT, so
+# each target is covered by two cron entries (one per UK offset). The
+# actual "is this the right moment, and have we already sent this one"
+# logic lives in league_report.js (window check + Firestore dedupe) rather
+# than here, because GitHub's scheduled crons are best-effort and can fire
+# hours late — an exact-match guard in this file would just silently miss
+# delayed runs the way an earlier version of this workflow did.
 on:
   schedule:
+    - cron: '0 20 * * 1' # Mon 21:00 UK during BST (UTC+1)
+    - cron: '0 21 * * 1' # Mon 21:00 UK during GMT (UTC+0)
     - cron: '0 19 * * 3' # Wed 20:00 UK during BST (UTC+1)
     - cron: '0 20 * * 3' # Wed 20:00 UK during GMT (UTC+0)
     - cron: '0 17 * * 0' # Sun 18:00 UK during BST (UTC+1)
