@@ -311,6 +311,12 @@ class _RewardedListener implements LevelPlayRewardedAdListener {
 class _ImpressionDataListener implements LevelPlayImpressionDataListener {
   @override
   void onImpressionSuccess(LevelPlayImpressionData impressionData) {
+    // Raw SDK values, straight from the callback — the ground truth for
+    // diagnosing a dashboard-reported revenue figure that looks wrong.
+    // `precision` in particular says whether `revenue` is real settled
+    // data ("exact"/"publisher_defined") or a modeled guess ("estimated"),
+    // which the LevelPlay console itself doesn't surface.
+    debugPrint('LevelPlay ILR: $impressionData');
     FirebaseAnalytics.instance.logEvent(
       name: 'ad_impression',
       parameters: {
