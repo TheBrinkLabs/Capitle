@@ -17,9 +17,10 @@ const MODES = ['guessCountry', 'guessCapital', 'guessFlag', 'guessNeighbours', '
 // well as genuinely inactive players, without needing real uninstall
 // detection (which this app has no infrastructure for — see
 // lib/core/utils/aluna_availability_service.dart's sibling discussion).
-// Two weekly cycles' worth of grace — long enough that someone on a
-// short break isn't punished, short enough that ghosts don't linger.
-const INACTIVITY_DAYS = 14;
+// A bit over one weekly cycle's worth of grace — long enough that someone
+// on a short break isn't punished, short enough that ghosts don't linger
+// a second full week in someone else's leaderboard (was 14 days).
+const INACTIVITY_DAYS = 10;
 
 function isInactive(playerData, now) {
   const reference = playerData.lastActiveAt || playerData.createdAt;
@@ -64,19 +65,26 @@ function zoneSize(roomSize) {
 // tier actually fills up, down to a floor equal to zoneSize's normal 20%
 // (so it still gets fed at the standard rate even once healthy, just not
 // artificially boosted forever once the "help it fill up" job is done).
-// Empty destination -> boosted 40%; a full room's worth (TARGET_SIZE, see
-// assignRooms.js) or more -> back down to the normal 20%; linear between.
+// Empty destination -> boosted 40%; a full tier's worth or more -> back
+// down to the normal 20%; linear between. "Full" is tier-specific —
+// Bronze->Silver measures against TARGET_SIZE (10, Silver's own target),
+// but Silver->Gold must measure against GOLD_ROOM_BOUNDS.target (15), NOT
+// TARGET_SIZE — using the wrong (smaller) threshold here was a real bug:
+// Gold already has ~14 members gets treated as "already full" against a
+// threshold of 10, tapering its promotion boost down to the bare 20% base
+// rate 5 members before Gold is actually at its own intended size, which
+// is exactly why Gold measurably stopped growing (14 in, 14 out, net
+// zero) despite 2 whole Silver rooms feeding it.
 const PROMOTION_BOOST_FRACTION = 0.4;
 const PROMOTION_BASE_FRACTION = 0.2; // matches zoneSize's rate
-const PROMOTION_FULL_THRESHOLD = TARGET_SIZE;
 
-function boostedPromotionFraction(currentDestTierCount) {
-  const t = Math.min(1, currentDestTierCount / PROMOTION_FULL_THRESHOLD);
+function boostedPromotionFraction(currentDestTierCount, fullThreshold) {
+  const t = Math.min(1, currentDestTierCount / fullThreshold);
   return PROMOTION_BOOST_FRACTION - (PROMOTION_BOOST_FRACTION - PROMOTION_BASE_FRACTION) * t;
 }
 
-function boostedPromotionCount(roomSize, currentDestTierCount) {
-  return Math.floor(roomSize * boostedPromotionFraction(currentDestTierCount));
+function boostedPromotionCount(roomSize, currentDestTierCount, fullThreshold) {
+  return Math.floor(roomSize * boostedPromotionFraction(currentDestTierCount, fullThreshold));
 }
 
 // Gold is the top tier — there's no competition-integrity cost to a
@@ -129,8 +137,8 @@ async function main() {
     const currentGoldCount = roomsSnap.docs
       .filter((d) => d.data().tier === 'gold')
       .reduce((sum, d) => sum + (d.data().memberUids || []).length, 0);
-    console.log(`Current Silver population: ${currentSilverCount} (Bronze promotion rate: ${(boostedPromotionFraction(currentSilverCount) * 100).toFixed(0)}%)`);
-    console.log(`Current Gold population: ${currentGoldCount} (Silver promotion rate: ${(boostedPromotionFraction(currentGoldCount) * 100).toFixed(0)}%)`);
+    console.log(`Current Silver population: ${currentSilverCount} (Bronze promotion rate: ${(boostedPromotionFraction(currentSilverCount, TARGET_SIZE) * 100).toFixed(0)}%)`);
+    console.log(`Current Gold population: ${currentGoldCount} (Silver promotion rate: ${(boostedPromotionFraction(currentGoldCount, GOLD_ROOM_BOUNDS.target) * 100).toFixed(0)}%)`);
 
     /** @type {Record<string, {uid: string, tier: string}[]>} incoming pool per NEXT tier */
     const incomingPools = { bronze: [], silver: [], gold: [] };
@@ -167,8 +175,8 @@ async function main() {
       }
 
       const rawPromoteCount = !tierAbove(tier) ? 0
-        : tier === 'bronze' ? boostedPromotionCount(scored.length, currentSilverCount)
-        : boostedPromotionCount(scored.length, currentGoldCount);
+        : tier === 'bronze' ? boostedPromotionCount(scored.length, currentSilverCount, TARGET_SIZE)
+        : boostedPromotionCount(scored.length, currentGoldCount, GOLD_ROOM_BOUNDS.target);
       // A 0-point week is a 0-point week — never a promotion, no matter
       // how thin the room's competition was. `scored` is sorted by score
       // descending, so capping at how many actually have points > 0 keeps
