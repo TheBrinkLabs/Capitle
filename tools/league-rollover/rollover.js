@@ -2,7 +2,7 @@
 
 const admin = require('firebase-admin');
 const { isoWeekId, currentWeekStartUtc, addDays } = require('./isoWeek');
-const { assignRoomsForTier, TARGET_SIZE } = require('./assignRooms');
+const { assignRoomsForTier, boundsForTier, rejoinTier, GOLD_ROOM_BOUNDS, TARGET_SIZE } = require('./assignRooms');
 
 // Platinum deliberately excluded for now — see the matching note by
 // kActiveTiers in lib/features/league/widgets/league_tier_badge.dart.
@@ -83,20 +83,19 @@ function boostedPromotionFraction(currentDestTierCount, fullThreshold) {
   return PROMOTION_BOOST_FRACTION - (PROMOTION_BOOST_FRACTION - PROMOTION_BASE_FRACTION) * t;
 }
 
-function boostedPromotionCount(roomSize, currentDestTierCount, fullThreshold) {
-  return Math.floor(roomSize * boostedPromotionFraction(currentDestTierCount, fullThreshold));
+// Silver->Gold rounds to nearest instead of down. Flooring each Silver room
+// separately cancelled out most of the threshold fix above: at Gold ~14 the
+// rate is ~21%, which floors to exactly what the old flat 20% gave for
+// nearly every room size (7-9 -> 1, 10-14 -> 2), while Gold itself sheds
+// 2-3 a week to relegation plus inactivity prunes. Rounding gives 7 -> 1,
+// 10-11 -> 2, 12-14 -> 3 at Gold ~14, and more while Gold is small.
+// Bronze->Silver stays on floor; Silver isn't the tier that's shrinking.
+function boostedPromotionCount(roomSize, currentDestTierCount, fullThreshold, round = Math.floor) {
+  return round(roomSize * boostedPromotionFraction(currentDestTierCount, fullThreshold));
 }
 
-// Gold is the top tier — there's no competition-integrity cost to a
-// promotion into it being "too easy" the way there would be for Bronze->
-// Silver (nothing above it to over-dilute), so it deliberately runs on
-// looser room bounds than the standard target-10/7-14 used everywhere
-// else: consolidate into fewer, livelier rooms instead of spreading a
-// small top-tier population across several thin ones. 17 or fewer stays
-// one room; 18 splits into two 9s (18 is the first pool assignRoomsForTier
-// can't fit under max=17, so the split lands exactly there — not an
-// independently-chosen threshold).
-const GOLD_ROOM_BOUNDS = { target: 15, min: 7, max: 17 };
+// GOLD_ROOM_BOUNDS (Gold's looser room sizing) lives in assignRooms.js,
+// shared with assignNewJoiners.js.
 
 async function main() {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -176,7 +175,7 @@ async function main() {
 
       const rawPromoteCount = !tierAbove(tier) ? 0
         : tier === 'bronze' ? boostedPromotionCount(scored.length, currentSilverCount, TARGET_SIZE)
-        : boostedPromotionCount(scored.length, currentGoldCount, GOLD_ROOM_BOUNDS.target);
+        : boostedPromotionCount(scored.length, currentGoldCount, GOLD_ROOM_BOUNDS.target, Math.round);
       // A 0-point week is a 0-point week — never a promotion, no matter
       // how thin the room's competition was. `scored` is sorted by score
       // descending, so capping at how many actually have points > 0 keeps
@@ -223,8 +222,16 @@ async function main() {
           // submit a score (see LeagueRepository.submitGameScore), which
           // is the real "welcome back" signal, not just the calendar
           // ticking over.
+          //
+          // They keep the tier this week's result gives them (nextTier —
+          // usually one down, since an inactive player scored 0 and sits
+          // in the relegation zone), NOT a reset to bronze. Resetting to
+          // bronze sent every Gold regular who skipped a single week
+          // straight to the bottom, two tiers below where they'd been, and
+          // was the main thing draining Gold. Step 2 below and
+          // assignNewJoiners.js seat returning players back in this tier.
           batch.set(db.collection('players').doc(entry.uid), {
-            tier: 'bronze', roomId: null, pendingJoin: false,
+            tier: nextTier, roomId: null, pendingJoin: false,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           }, { merge: true });
           prunedThisRoom++;
@@ -255,16 +262,27 @@ async function main() {
       console.log(`World Champion for ${justEndedWeekId}: ${champion.uid} (score ${champion.score}, room ${champion.roomId})`);
     }
 
-    // ── 2. New entrants join Bronze only ────────────────────────────────
+    // ── 2. Pending players: new entrants join Bronze, returners rejoin ──
+    // their own tier. Brand-new players are created as bronze; a player
+    // parked by the inactivity prune kept their tier (see above), so
+    // rejoinTier() puts them back there. Anyone already placed by step 1
+    // is skipped so nobody can land in two rooms.
+    const alreadyPlaced = new Set(Object.values(incomingPools).flat());
     const pendingSnap = await db.collection('players').where('pendingJoin', '==', true).get();
-    pendingSnap.forEach((doc) => incomingPools.bronze.push(doc.id));
-    console.log(`${pendingSnap.size} new entrants joining Bronze`);
+    const pendingByTier = { bronze: 0, silver: 0, gold: 0 };
+    pendingSnap.forEach((doc) => {
+      if (alreadyPlaced.has(doc.id)) return;
+      const tier = rejoinTier(doc.data());
+      incomingPools[tier].push(doc.id);
+      pendingByTier[tier]++;
+    });
+    console.log(`Pending players joining: ${JSON.stringify(pendingByTier)}`);
 
     // ── 3. Assign new rooms per tier ────────────────────────────────────
     let roomsCreated = 0;
     for (const tier of TIERS) {
       const pool = incomingPools[tier];
-      const rooms = assignRoomsForTier(pool, nextWeekId, tier === 'gold' ? GOLD_ROOM_BOUNDS : undefined);
+      const rooms = assignRoomsForTier(pool, nextWeekId, boundsForTier(tier));
       for (let i = 0; i < rooms.length; i++) {
         const roomId = `${tier}_${nextWeekId}_${i}`;
         await db.collection('leagueRooms').doc(roomId).set({

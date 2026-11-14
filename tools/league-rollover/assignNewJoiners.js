@@ -1,7 +1,8 @@
 'use strict';
 
 // Lightweight daily companion to rollover.js — assigns players who signed
-// up mid-week (pendingJoin still true) into a Bronze room, so a new
+// up mid-week (pendingJoin still true) into a Bronze room, and players
+// returning after an inactivity prune back into their own tier, so a new
 // signup waits at most ~24h to see a real room instead of up to 6 days
 // for the next Monday rollover. Prefers topping up an existing
 // under-capacity room over spinning up a new one, so a small (or lone)
@@ -19,7 +20,7 @@
 
 const admin = require('firebase-admin');
 const { isoWeekId, currentWeekStartUtc } = require('./isoWeek');
-const { assignRoomsForTier, MAX_SIZE } = require('./assignRooms');
+const { assignRoomsForTier, boundsForTier, rejoinTier, ROOM_TIERS } = require('./assignRooms');
 
 // Debug builds stamp isTestAccount: true at signup (see
 // LeagueRepository.ensurePlayerDocument) — dev/test devices, not real
@@ -87,17 +88,28 @@ async function pruneDuplicateDeviceAccounts(db) {
   for (const [deviceId, docs] of byDevice.entries()) {
     if (docs.length < 2) continue;
 
-    // Newest createdAt wins (the currently-active install) — every other
-    // doc sharing this device is a stale duplicate from an earlier
-    // install. A missing createdAt sorts as oldest (epoch 0), never kept
-    // over a doc with a real timestamp.
+    // Which doc is the live one? NOT simply the newest createdAt: restoring
+    // a Google-linked account from Settings switches this install back to
+    // its OLD uid after a fresh anonymous doc was already created, so
+    // "newest createdAt wins" deleted the restored (often long-time, Gold)
+    // account and kept the throwaway one. Prefer a Google-linked doc, then
+    // the most recently played (lastActiveAt), then newest createdAt. A
+    // missing timestamp sorts as oldest (epoch 0).
+    const millis = (ts) => ts?.toMillis() ?? 0;
     docs.sort((a, b) => {
-      const ta = a.data().createdAt?.toMillis() ?? 0;
-      const tb = b.data().createdAt?.toMillis() ?? 0;
-      return tb - ta;
+      const da = a.data();
+      const db_ = b.data();
+      return (Number(db_.linkedGoogle === true) - Number(da.linkedGoogle === true))
+        || (millis(db_.lastActiveAt) - millis(da.lastActiveAt))
+        || (millis(db_.createdAt) - millis(da.createdAt));
     });
-    const [keep, ...stale] = docs;
-    console.log(`Device ${deviceId}: keeping ${keep.id}, pruning ${stale.length} older duplicate(s)`);
+    const [keep, ...rest] = docs;
+    // A Google-linked account is never an orphan: it can always be signed
+    // back into, so it's never pruned as a duplicate (two family members'
+    // linked accounts on one shared phone both survive).
+    const stale = rest.filter((d) => d.data().linkedGoogle !== true);
+    if (stale.length === 0) continue;
+    console.log(`Device ${deviceId}: keeping ${keep.id}, pruning ${stale.length} stale duplicate(s)`);
 
     for (const doc of stale) {
       const data = doc.data();
@@ -130,40 +142,56 @@ async function pruneDuplicateDeviceAccounts(db) {
   console.log(`Pruned ${pruned} duplicate-device account(s).`);
 }
 
+async function seatInRoom(db, roomRef, tier, uids, wasSize) {
+  await roomRef.update({ memberUids: admin.firestore.FieldValue.arrayUnion(...uids) });
+  const batch = db.batch();
+  for (const uid of uids) {
+    batch.set(db.collection('players').doc(uid), {
+      tier, roomId: roomRef.id, pendingJoin: false,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+  await batch.commit();
+  console.log(`Folded ${uids.length} player(s) into existing ${tier} room ${roomRef.id} (was ${wasSize})`);
+}
+
 // A lone (or small) pending cohort shouldn't be stuck by itself in a
-// brand-new room with no one to play against — top up whatever Bronze
-// rooms already exist this week (both the Monday rollover's main rooms
+// brand-new room with no one to play against — top up whatever rooms of
+// that tier already exist this week (both the Monday rollover's main rooms
 // and earlier days' daily-cohort rooms) before ever creating a new one.
-// Fills the smallest/loneliest rooms first. Returns whichever uids
-// couldn't be placed (no existing room had spare capacity), for the
-// caller to bucket into fresh rooms as before.
-async function foldIntoExistingRooms(db, weekId, uids) {
+// Fills the smallest/loneliest rooms first, up to the tier's max.
+//
+// Bronze gets new entrants in real numbers, so once its rooms are full the
+// overflow goes to fresh rooms. Silver/Gold only ever get returning
+// players here (a handful at a time), and a fresh room of one returner
+// would be a dead competition — so any overflow there squeezes into the
+// tier's smallest existing room, slightly over max. Only when the tier has
+// no rooms at all this week does it return uids for fresh rooms.
+// Returns whichever uids still need a fresh room.
+async function foldIntoExistingRooms(db, weekId, tier, uids) {
+  const { max } = boundsForTier(tier);
   const roomsSnap = await db.collection('leagueRooms')
-    .where('tier', '==', 'bronze')
+    .where('tier', '==', tier)
     .where('weekId', '==', weekId)
     .get();
 
-  const candidates = roomsSnap.docs
+  const rooms = roomsSnap.docs
     .map((d) => ({ ref: d.ref, size: (d.data().memberUids || []).length }))
-    .filter((r) => r.size < MAX_SIZE)
     .sort((a, b) => a.size - b.size);
 
   let remaining = uids.slice();
-  for (const room of candidates) {
+  for (const room of rooms) {
     if (remaining.length === 0) break;
-    const take = remaining.splice(0, MAX_SIZE - room.size);
-    if (take.length === 0) continue;
+    if (room.size >= max) continue;
+    const take = remaining.splice(0, max - room.size);
+    await seatInRoom(db, room.ref, tier, take, room.size);
+    room.size += take.length;
+  }
 
-    await room.ref.update({ memberUids: admin.firestore.FieldValue.arrayUnion(...take) });
-    const batch = db.batch();
-    for (const uid of take) {
-      batch.set(db.collection('players').doc(uid), {
-        tier: 'bronze', roomId: room.ref.id, pendingJoin: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
-    }
-    await batch.commit();
-    console.log(`Folded ${take.length} player(s) into existing room ${room.ref.id} (was ${room.size})`);
+  if (remaining.length > 0 && tier !== 'bronze' && rooms.length > 0) {
+    rooms.sort((a, b) => a.size - b.size);
+    await seatInRoom(db, rooms[0].ref, tier, remaining, rooms[0].size);
+    remaining = [];
   }
   return remaining;
 }
@@ -183,46 +211,54 @@ async function main() {
   await pruneStaleTestAccounts(db);
   await pruneDuplicateDeviceAccounts(db);
 
+  // New entrants are bronze; players parked by the inactivity prune kept
+  // their tier (see rollover.js) and go back into it — see rejoinTier.
   const pendingSnap = await db.collection('players').where('pendingJoin', '==', true).get();
-  const allUids = pendingSnap.docs.map((d) => d.id);
-  console.log(`${allUids.length} player(s) pending Bronze assignment`);
+  const byTier = new Map(ROOM_TIERS.map((t) => [t, []]));
+  for (const doc of pendingSnap.docs) byTier.get(rejoinTier(doc.data())).push(doc.id);
+  console.log(`${pendingSnap.size} player(s) pending assignment: ${
+    ROOM_TIERS.map((t) => `${t} ${byTier.get(t).length}`).join(', ')}`);
 
-  if (allUids.length === 0) {
+  if (pendingSnap.size === 0) {
     console.log('Nothing to do.');
     return;
   }
 
-  const uids = await foldIntoExistingRooms(db, weekId, allUids);
-  if (uids.length === 0) {
-    console.log('Daily join complete: everyone folded into an existing room, no new rooms needed.');
-    return;
-  }
-
-  // Distinct seed from the weekly rollover's own room-numbering scheme
-  // (bronze_{weekId}_{i}) so today's ad-hoc cohort rooms can never
-  // collide with rooms the Monday rollover created for this same week.
-  const rooms = assignRoomsForTier(uids, `${weekId}_daily_${dateKey}`);
-
   let roomsCreated = 0;
-  for (let i = 0; i < rooms.length; i++) {
-    const roomId = `bronze_${weekId}_daily_${dateKey}_${i}`;
-    await db.collection('leagueRooms').doc(roomId).set({
-      tier: 'bronze', weekId, memberUids: rooms[i],
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    roomsCreated++;
+  let playersInNewRooms = 0;
+  for (const tier of ROOM_TIERS) {
+    const pending = byTier.get(tier);
+    if (pending.length === 0) continue;
 
-    const batch = db.batch();
-    for (const uid of rooms[i]) {
-      batch.set(db.collection('players').doc(uid), {
-        tier: 'bronze', roomId, pendingJoin: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+    const uids = await foldIntoExistingRooms(db, weekId, tier, pending);
+    if (uids.length === 0) continue;
+
+    // Distinct seed from the weekly rollover's own room-numbering scheme
+    // ({tier}_{weekId}_{i}) so today's ad-hoc cohort rooms can never
+    // collide with rooms the Monday rollover created for this same week.
+    const rooms = assignRoomsForTier(uids, `${weekId}_daily_${dateKey}_${tier}`, boundsForTier(tier));
+
+    for (let i = 0; i < rooms.length; i++) {
+      const roomId = `${tier}_${weekId}_daily_${dateKey}_${i}`;
+      await db.collection('leagueRooms').doc(roomId).set({
+        tier, weekId, memberUids: rooms[i],
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      roomsCreated++;
+      playersInNewRooms += rooms[i].length;
+
+      const batch = db.batch();
+      for (const uid of rooms[i]) {
+        batch.set(db.collection('players').doc(uid), {
+          tier, roomId, pendingJoin: false,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+      await batch.commit();
     }
-    await batch.commit();
   }
 
-  console.log(`Daily join complete: ${roomsCreated} room(s) created for ${uids.length} player(s).`);
+  console.log(`Daily join complete: ${roomsCreated} new room(s) for ${playersInNewRooms} player(s); the rest folded into existing rooms.`);
 }
 
 main().catch((err) => {

@@ -4,6 +4,38 @@ const TARGET_SIZE = 10;
 const MIN_SIZE = 7;
 const MAX_SIZE = 14;
 
+// Gold is the top tier — there's no competition-integrity cost to a
+// promotion into it being "too easy" the way there would be for Bronze->
+// Silver (nothing above it to over-dilute), so it deliberately runs on
+// looser room bounds than the standard target-10/7-14 used everywhere
+// else: consolidate into fewer, livelier rooms instead of spreading a
+// small top-tier population across several thin ones. 17 or fewer stays
+// one room; 18 splits into two 9s (18 is the first pool assignRoomsForTier
+// can't fit under max=17, so the split lands exactly there — not an
+// independently-chosen threshold). Shared by rollover.js and
+// assignNewJoiners.js (which re-seats returning players mid-week).
+const GOLD_ROOM_BOUNDS = { target: 15, min: 7, max: 17 };
+
+/** Room bounds for a tier: Gold's looser ones, everyone else's defaults. */
+function boundsForTier(tier) {
+  return tier === 'gold' ? GOLD_ROOM_BOUNDS : { target: TARGET_SIZE, min: MIN_SIZE, max: MAX_SIZE };
+}
+
+// Keep in sync with rollover.js's TIERS (Platinum deliberately excluded).
+const ROOM_TIERS = ['bronze', 'silver', 'gold'];
+
+/**
+ * Which tier a pendingJoin player should be seated in. Brand-new players
+ * are created as bronze; a player parked by the inactivity prune keeps the
+ * tier they'd earned (see rollover.js), so coming back after a break puts
+ * them back where they were instead of all the way down in Bronze.
+ * Anything unrecognised falls back to bronze.
+ */
+function rejoinTier(playerData) {
+  const t = playerData && playerData.tier;
+  return ROOM_TIERS.includes(t) ? t : 'bronze';
+}
+
 /** Deterministic seeded shuffle (mulberry32) so a re-run with the same
  * weekId (e.g. after a failed run is retried) produces identical room
  * assignments — important for the idempotency guard in rollover.js. */
@@ -35,7 +67,7 @@ function seededShuffle(array, seed) {
  * skill-banding).
  *
  * Defaults to Bronze/Silver's bounds (target 10, 7-14 per room). Gold
- * deliberately uses looser bounds (see rollover.js's GOLD_ROOM_BOUNDS) —
+ * deliberately uses looser bounds (see GOLD_ROOM_BOUNDS above) —
  * promotion pressure/skill-banding matters less once you're already at
  * the top tier, so consolidating into fewer, bigger rooms makes for a
  * livelier competition than spreading thin across several small ones.
@@ -87,4 +119,6 @@ function assignRoomsForTier(incomingUids, weekId, bounds = {}) {
   return [shuffled];
 }
 
-module.exports = { assignRoomsForTier, TARGET_SIZE, MIN_SIZE, MAX_SIZE };
+module.exports = {
+  assignRoomsForTier, boundsForTier, rejoinTier, GOLD_ROOM_BOUNDS, ROOM_TIERS, TARGET_SIZE, MIN_SIZE, MAX_SIZE,
+};
